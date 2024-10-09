@@ -140,7 +140,7 @@ class _MapPageState extends State<MapPage> {
     print("Active Panic Button count: $_activeDevices");
     _devices.forEach((id, device) {
       print(
-          "Device $id - Active: ${device.isActive}, Last activity: ${device.lastActivity}");
+          "Panic button $id - Active: ${device.isActive}, Last activity: ${device.lastActivity}");
     });
   }
 
