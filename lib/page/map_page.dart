@@ -351,7 +351,9 @@ class _MapPageState extends State<MapPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                isGateway ? 'Gateway ${device.id}' : 'Device ${device.id}',
+                isGateway
+                    ? 'Gateway ${device.id}'
+                    : 'Panic Button ${device.id}',
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
               ),
               SizedBox(height: 16),
