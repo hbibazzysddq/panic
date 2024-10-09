@@ -19,6 +19,12 @@ class DeviceInfo {
     required this.lastActivity,
     this.isActive = false,
   });
+  String get displayId {
+    if (id.startsWith('id-')) {
+      return id.substring(3); // Remove 'id-' prefix
+    }
+    return id; // Return as is for other cases (e.g., Gateway)
+  }
 }
 
 class MapPage extends StatefulWidget {
@@ -310,7 +316,7 @@ class _MapPageState extends State<MapPage> {
             children: [
               Icon(Icons.warning_amber_rounded, color: Colors.red, size: 50),
               SizedBox(height: 10),
-              Text('Panic button ${device.id} is ACTIVE!',
+              Text('Panic button ${device.displayId} is ACTIVE!',
                   style: TextStyle(fontWeight: FontWeight.bold)),
               Text(
                   'Location: ${device.location.latitude}, ${device.location.longitude}'),
@@ -352,8 +358,8 @@ class _MapPageState extends State<MapPage> {
             children: [
               Text(
                 isGateway
-                    ? 'Gateway ${device.id}'
-                    : 'Panic Button ${device.id}',
+                    ? 'Gateway ${device.displayId}'
+                    : 'Panic Button ${device.displayId}',
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
               ),
               SizedBox(height: 16),
