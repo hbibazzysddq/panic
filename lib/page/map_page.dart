@@ -6,6 +6,7 @@ import 'dart:ui' as ui;
 import 'dart:typed_data';
 import 'dart:convert';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class DeviceInfo {
   final String id;
@@ -40,6 +41,8 @@ class _MapPageState extends State<MapPage> {
   int _activeDevices = 0;
   DateTime _lastUpdateTime = DateTime.now();
 
+  Map<String, List<String>> _logEntries = {};
+
   GoogleMapController? _mapController;
   Timer? _dataFetchTimer;
   Timer? _inactivityCheckTimer;
@@ -51,7 +54,7 @@ class _MapPageState extends State<MapPage> {
   static const Duration _deactivationDuration = Duration(minutes: 5);
 
   final Map<String, LatLng> _manualCoordinates = {
-    'id-1': LatLng(-8.679444, 115.260556),
+    'id-1': LatLng(-8.679730, 115.260544),
     'id-2': LatLng(-8.679722, 115.261389),
     'Gateway 1': LatLng(-8.679722, 115.261667),
     'id-3': LatLng(-8.679444, 115.262222),
@@ -80,7 +83,11 @@ class _MapPageState extends State<MapPage> {
     _startInactivityCheckTimer();
   }
 
-  void _initializeDevices() {
+/*************  ✨ Codeium Command ⭐  *************/
+  /// Initialize the devices map with manual coordinates, set last activity to now minus 5 seconds ago, and set active status to false.
+  /// Then, call _updateActiveDeviceCount to update the _activeDevices variable.
+/******  b5790698-c45c-4593-bee2-6ef4b606cf44  *******/ void
+      _initializeDevices() {
     _manualCoordinates.forEach((id, location) {
       _devices[id] = DeviceInfo(
         id: id,
@@ -186,6 +193,7 @@ class _MapPageState extends State<MapPage> {
               device.isActive = true;
               device.lastActivity = now;
               statusChanged = true;
+              _addLogEntry("Panic Button ${device.displayId} activated");
               print("Panic Button $deviceId activated at ${now}");
 
               // Show alert when device becomes active
@@ -222,6 +230,8 @@ class _MapPageState extends State<MapPage> {
           now.difference(device.lastActivity) > _inactivityThreshold) {
         device.isActive = false;
         statusChanged = true;
+        _addLogEntry(
+            "Panic Button ${device.displayId} deactivated due to inactivity");
         print(
             "Panic Button $id deactivated due to inactivity. Last activity: ${device.lastActivity}");
       }
@@ -236,6 +246,7 @@ class _MapPageState extends State<MapPage> {
     setState(() {
       _devices.forEach((id, device) {
         device.isActive = false;
+        _addLogEntry("All Panic Buttons reset to inactive");
         print("Panic Button $id has been reset to inactive");
       });
       _updateActiveDeviceCount();
@@ -309,15 +320,16 @@ class _MapPageState extends State<MapPage> {
       barrierDismissible: false,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: Text('DANGER ALERT',
+          title: const Text('DANGER ALERT',
               style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.warning_amber_rounded, color: Colors.red, size: 50),
-              SizedBox(height: 10),
+              const Icon(Icons.warning_amber_rounded,
+                  color: Colors.red, size: 50),
+              const SizedBox(height: 10),
               Text('Panic button ${device.displayId} is ACTIVE!',
-                  style: TextStyle(fontWeight: FontWeight.bold)),
+                  style: const TextStyle(fontWeight: FontWeight.bold)),
               Text(
                   'Location: ${device.location.latitude}, ${device.location.longitude}'),
             ],
@@ -325,7 +337,8 @@ class _MapPageState extends State<MapPage> {
           backgroundColor: Colors.yellow,
           actions: [
             TextButton(
-              child: Text('View on Map', style: TextStyle(color: Colors.red)),
+              child: const Text('View on Map',
+                  style: TextStyle(color: Colors.red)),
               onPressed: () {
                 Navigator.of(context).pop();
                 _mapController?.animateCamera(
@@ -334,7 +347,8 @@ class _MapPageState extends State<MapPage> {
               },
             ),
             TextButton(
-              child: Text('Dismiss', style: TextStyle(color: Colors.black)),
+              child:
+                  const Text('Dismiss', style: TextStyle(color: Colors.black)),
               onPressed: () {
                 Navigator.of(context).pop();
               },
@@ -360,9 +374,10 @@ class _MapPageState extends State<MapPage> {
                 isGateway
                     ? 'Gateway ${device.displayId}'
                     : 'Panic Button ${device.displayId}',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                style:
+                    const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
               ),
-              SizedBox(height: 16),
+              const SizedBox(height: 16),
               if (!isGateway) ...[
                 _buildInfoRow(
                     'Status', device.isActive ? 'Active' : 'Inactive'),
@@ -373,7 +388,7 @@ class _MapPageState extends State<MapPage> {
               ],
               _buildInfoRow('Location',
                   '${device.location.latitude}, ${device.location.longitude}'),
-              SizedBox(height: 16),
+              const SizedBox(height: 16),
               ElevatedButton(
                 onPressed: () {
                   Navigator.pop(context);
@@ -381,12 +396,12 @@ class _MapPageState extends State<MapPage> {
                     CameraUpdate.newLatLngZoom(device.location, 18),
                   );
                 },
-                child: Text('Zoom to ${isGateway ? 'Gateway' : 'Device'}'),
                 style: ElevatedButton.styleFrom(
                   foregroundColor: Colors.white,
                   backgroundColor: isGateway ? Colors.purple : Colors.blue,
-                  minimumSize: Size(double.infinity, 50),
+                  minimumSize: const Size(double.infinity, 50),
                 ),
+                child: Text('Zoom to ${isGateway ? 'Gateway' : 'Device'}'),
               ),
             ],
           ),
@@ -402,23 +417,88 @@ class _MapPageState extends State<MapPage> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label,
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-          Text(value, style: TextStyle(fontSize: 16)),
+              style:
+                  const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          Text(value, style: const TextStyle(fontSize: 16)),
         ],
       ),
     );
   }
 
+  void _addLogEntry(String entry) {
+    final now = DateTime.now();
+    final dateStr = DateFormat('yyyy-MM-dd').format(now);
+    final timeStr = DateFormat('HH:mm:ss').format(now);
+
+    setState(() {
+      if (!_logEntries.containsKey(dateStr)) {
+        _logEntries[dateStr] = [];
+      }
+      _logEntries[dateStr]!.insert(0, "$timeStr: $entry");
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Panic Button Map'),
+            Text(
+              'Active: $_activeDevices | Last Update: ${DateFormat('HH:mm:ss').format(_lastUpdateTime)}',
+              style: const TextStyle(fontSize: 12),
+            ),
+          ],
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _resetAllDevices,
+            tooltip: 'Reset all panic buttons',
+          ),
+        ],
+      ),
+      drawer: Drawer(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: <Widget>[
+            const DrawerHeader(
+              decoration: BoxDecoration(
+                color: Colors.blue,
+              ),
+              child: Text(
+                'Timestamp Log',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 24,
+                ),
+              ),
+            ),
+            ..._logEntries.entries.map((entry) {
+              return ExpansionTile(
+                title: Text(
+                  entry.key,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                children: entry.value
+                    .map((logEntry) => ListTile(
+                          title: Text(logEntry),
+                        ))
+                    .toList(),
+              );
+            }).toList(),
+          ],
+        ),
+      ),
       body: Stack(
         children: [
           GoogleMap(
             onMapCreated: _onMapCreated,
             mapType: MapType.satellite,
             markers: _createMarkers(),
-            initialCameraPosition: CameraPosition(
+            initialCameraPosition: const CameraPosition(
               target: _defaultCenter,
               zoom: 15,
             ),
@@ -426,53 +506,14 @@ class _MapPageState extends State<MapPage> {
             zoomControlsEnabled: false,
           ),
           Positioned(
-            top: MediaQuery.of(context).padding.top + 10,
-            left: 10,
-            right: 10,
-            child: Card(
-              color: Colors.white.withOpacity(0.8),
-              child: Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Panic Button',
-                          style: TextStyle(
-                              fontSize: 18, fontWeight: FontWeight.bold),
-                        ),
-                        Text(
-                          'Active Panic Button: $_activeDevices',
-                          style: TextStyle(fontSize: 14),
-                        ),
-                        Text(
-                          'Last Update: ${DateFormat('yyyy-MM-dd – kk:mm:ss').format(_lastUpdateTime)}',
-                          style: TextStyle(fontSize: 12),
-                        ),
-                      ],
-                    ),
-                    IconButton(
-                      icon: Icon(Icons.refresh),
-                      onPressed: _resetAllDevices,
-                      tooltip: 'Reset all panic button',
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          Positioned(
             right: 10,
             bottom: 90,
             child: FloatingActionButton(
               onPressed: _fitBounds,
-              child: Icon(Icons.center_focus_strong),
               tooltip: 'Fit all markers',
               backgroundColor: Colors.white,
               foregroundColor: Colors.blue,
+              child: const Icon(Icons.center_focus_strong),
             ),
           ),
         ],
