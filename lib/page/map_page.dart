@@ -13,6 +13,7 @@ class DeviceInfo {
   final LatLng location;
   DateTime lastActivity;
   bool isActive;
+  Timer? inactivityTimer;
 
   DeviceInfo({
     required this.id,
@@ -20,11 +21,12 @@ class DeviceInfo {
     required this.lastActivity,
     this.isActive = false,
   });
+
   String get displayId {
     if (id.startsWith('id-')) {
-      return id.substring(3); // Remove 'id-' prefix
+      return id.substring(3);
     }
-    return id; // Return as is for other cases (e.g., Gateway)
+    return id;
   }
 }
 
@@ -37,6 +39,7 @@ class MapPage extends StatefulWidget {
 
 class _MapPageState extends State<MapPage> {
   static const LatLng _defaultCenter = LatLng(-8.6776782, 115.2611143);
+  static const Duration _inactivityThreshold = Duration(minutes: 1);
   final Map<String, DeviceInfo> _devices = {};
   int _activeDevices = 0;
   DateTime _lastUpdateTime = DateTime.now();
@@ -45,13 +48,9 @@ class _MapPageState extends State<MapPage> {
 
   GoogleMapController? _mapController;
   Timer? _dataFetchTimer;
-  Timer? _inactivityCheckTimer;
   BitmapDescriptor? _activeMarkerIcon;
   BitmapDescriptor? _inactiveMarkerIcon;
   BitmapDescriptor? _gatewayMarkerIcon;
-
-  static const Duration _inactivityThreshold = Duration(minutes: 1);
-  static const Duration _deactivationDuration = Duration(minutes: 5);
 
   final Map<String, LatLng> _manualCoordinates = {
     'id-1': LatLng(-8.679730, 115.260544),
@@ -74,20 +73,40 @@ class _MapPageState extends State<MapPage> {
     'id-16': LatLng(-8.676667, 115.261111),
   };
 
+  void _startPeriodicDeviceCheck() {
+    Timer.periodic(Duration(seconds: 30), (timer) {
+      final now = DateTime.now();
+      bool statusChanged = false;
+
+      _devices.forEach((id, device) {
+        if (device.isActive &&
+            now.difference(device.lastActivity) > _inactivityThreshold) {
+          device.isActive = false;
+          statusChanged = true;
+          _addLogEntry(
+              "Panic Button ${device.displayId} deactivated due to inactivity");
+          print("Panic Button $id deactivated due to inactivity");
+        }
+      });
+
+      if (statusChanged) {
+        setState(() {
+          _updateActiveDeviceCount();
+        });
+      }
+    });
+  }
+
   @override
   void initState() {
     super.initState();
     _createMarkerIcons();
     _initializeDevices();
     _startDataFetchTimer();
-    _startInactivityCheckTimer();
+    _startPeriodicDeviceCheck(); // Add this line
   }
 
-/*************  ✨ Codeium Command ⭐  *************/
-  /// Initialize the devices map with manual coordinates, set last activity to now minus 5 seconds ago, and set active status to false.
-  /// Then, call _updateActiveDeviceCount to update the _activeDevices variable.
-/******  b5790698-c45c-4593-bee2-6ef4b606cf44  *******/ void
-      _initializeDevices() {
+  void _initializeDevices() {
     _manualCoordinates.forEach((id, location) {
       _devices[id] = DeviceInfo(
         id: id,
@@ -102,8 +121,8 @@ class _MapPageState extends State<MapPage> {
   @override
   void dispose() {
     _dataFetchTimer?.cancel();
-    _inactivityCheckTimer?.cancel();
     _mapController?.dispose();
+    _devices.values.forEach((device) => device.inactivityTimer?.cancel());
     super.dispose();
   }
 
@@ -136,12 +155,6 @@ class _MapPageState extends State<MapPage> {
   void _startDataFetchTimer() {
     _dataFetchTimer = Timer.periodic(Duration(seconds: 1), (timer) {
       _fetchDataFromServer();
-    });
-  }
-
-  void _startInactivityCheckTimer() {
-    _inactivityCheckTimer = Timer.periodic(Duration(seconds: 1), (timer) {
-      _checkDeviceInactivity();
     });
   }
 
@@ -189,63 +202,38 @@ class _MapPageState extends State<MapPage> {
               !deviceId.toLowerCase().contains('gateway')) {
             final DeviceInfo device = _devices[deviceId]!;
 
-            if (!device.isActive) {
-              device.isActive = true;
-              device.lastActivity = now;
-              statusChanged = true;
-              _addLogEntry("Panic Button ${device.displayId} activated");
-              print("Panic Button $deviceId activated at ${now}");
+            // Check if this is actually new data
+            final DateTime receivedAt = DateTime.parse(item['received_at']);
+            if (receivedAt.isAfter(device.lastActivity)) {
+              device.lastActivity = receivedAt;
 
-              // Show alert when device becomes active
-              _showDeviceActivationAlert(device);
-
-              Timer(_deactivationDuration, () {
-                setState(() {
-                  device.isActive = false;
-                  print("Panic Button $deviceId deactivated after 5 minutes.");
-                  _updateActiveDeviceCount();
-                });
-              });
-            } else {
-              device.lastActivity = now;
+              if (!device.isActive) {
+                device.isActive = true;
+                statusChanged = true;
+                _addLogEntry("Panic Button ${device.displayId} activated");
+                print("Panic Button $deviceId activated at $now");
+                _showDeviceActivationAlert(device);
+              }
             }
           }
         }
       }
     }
 
-    _checkDeviceInactivity();
-
     if (statusChanged) {
       _updateActiveDeviceCount();
     }
-  }
 
-  void _checkDeviceInactivity() {
-    final now = DateTime.now();
-    bool statusChanged = false;
-
-    _devices.forEach((id, device) {
-      if (device.isActive &&
-          now.difference(device.lastActivity) > _inactivityThreshold) {
-        device.isActive = false;
-        statusChanged = true;
-        _addLogEntry(
-            "Panic Button ${device.displayId} deactivated due to inactivity");
-        print(
-            "Panic Button $id deactivated due to inactivity. Last activity: ${device.lastActivity}");
-      }
+    setState(() {
+      _lastUpdateTime = now;
     });
-
-    if (statusChanged) {
-      _updateActiveDeviceCount();
-    }
   }
 
   void _resetAllDevices() {
     setState(() {
       _devices.forEach((id, device) {
         device.isActive = false;
+        device.inactivityTimer?.cancel();
         _addLogEntry("All Panic Buttons reset to inactive");
         print("Panic Button $id has been reset to inactive");
       });
