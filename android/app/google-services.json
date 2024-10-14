@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "248633274767",
+    "project_id": "panic-button-sanur",
+    "storage_bucket": "panic-button-sanur.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:248633274767:android:6e6cfa0aecabbec4345bfa",
+        "android_client_info": {
+          "package_name": "com.example.sanurbali"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBPa1IeUe78Kul1VLu3AMv19o4WRJhtvdU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

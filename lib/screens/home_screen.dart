@@ -3,16 +3,16 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'dart:async';
 import 'dart:ui' as ui;
-import 'dart:typed_data';
+
 import 'dart:convert';
 import 'package:intl/intl.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class DeviceInfo {
   final String id;
   final LatLng location;
   DateTime lastActivity;
   bool isActive;
+
   Timer? inactivityTimer;
 
   DeviceInfo({
@@ -30,14 +30,14 @@ class DeviceInfo {
   }
 }
 
-class MapPage extends StatefulWidget {
-  const MapPage({Key? key}) : super(key: key);
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({Key? key}) : super(key: key);
 
   @override
-  _MapPageState createState() => _MapPageState();
+  _HomeScreenState createState() => _HomeScreenState();
 }
 
-class _MapPageState extends State<MapPage> {
+class _HomeScreenState extends State<HomeScreen> {
   static const LatLng _defaultCenter = LatLng(-8.6776782, 115.2611143);
   static const Duration _inactivityThreshold = Duration(minutes: 1);
   final Map<String, DeviceInfo> _devices = {};
@@ -51,6 +51,11 @@ class _MapPageState extends State<MapPage> {
   BitmapDescriptor? _activeMarkerIcon;
   BitmapDescriptor? _inactiveMarkerIcon;
   BitmapDescriptor? _gatewayMarkerIcon;
+  BitmapDescriptor? _activeMarkerIconLarge;
+  BitmapDescriptor? _inactiveMarkerIconLarge;
+  BitmapDescriptor? _gatewayMarkerIconLarge;
+
+  bool get isAndroid => Theme.of(context).platform == TargetPlatform.android;
 
   final Map<String, LatLng> _manualCoordinates = {
     'id-1': LatLng(-8.679730, 115.260544),
@@ -74,7 +79,7 @@ class _MapPageState extends State<MapPage> {
   };
 
   void _startPeriodicDeviceCheck() {
-    Timer.periodic(Duration(seconds: 30), (timer) {
+    Timer.periodic(Duration(seconds: 15), (timer) {
       final now = DateTime.now();
       bool statusChanged = false;
 
@@ -127,26 +132,34 @@ class _MapPageState extends State<MapPage> {
   }
 
   Future<void> _createMarkerIcons() async {
-    _activeMarkerIcon = await _createCustomMarkerBitmap(Colors.red);
-    _inactiveMarkerIcon = await _createCustomMarkerBitmap(Colors.green);
-    _gatewayMarkerIcon = await _createCustomMarkerBitmap(Colors.purple);
+    _activeMarkerIcon = await _createCustomMarkerBitmap(Colors.red, 24);
+    _inactiveMarkerIcon = await _createCustomMarkerBitmap(Colors.green, 24);
+    _gatewayMarkerIcon = await _createCustomMarkerBitmap(Colors.purple, 24);
+
+    _activeMarkerIconLarge = await _createCustomMarkerBitmap(Colors.red, 48);
+    _inactiveMarkerIconLarge =
+        await _createCustomMarkerBitmap(Colors.green, 48);
+    _gatewayMarkerIconLarge =
+        await _createCustomMarkerBitmap(Colors.purple, 48);
+
     setState(() {});
   }
 
-  Future<BitmapDescriptor> _createCustomMarkerBitmap(Color color) async {
+  Future<BitmapDescriptor> _createCustomMarkerBitmap(
+      Color color, double size) async {
     final pictureRecorder = ui.PictureRecorder();
     final canvas = Canvas(pictureRecorder);
     final paint = Paint()..color = color;
 
-    canvas.drawCircle(Offset(12, 12), 12, paint);
+    canvas.drawCircle(Offset(size / 2, size / 2), size / 2, paint);
 
     final centerPaint = Paint()..color = Colors.white;
-    canvas.drawCircle(Offset(12, 12), 6, centerPaint);
+    canvas.drawCircle(Offset(size / 2, size / 2), size / 4, centerPaint);
 
-    canvas.drawCircle(Offset(12, 12), 4, paint);
+    canvas.drawCircle(Offset(size / 2, size / 2), size / 6, paint);
 
     final picture = pictureRecorder.endRecording();
-    final image = await picture.toImage(24, 24);
+    final image = await picture.toImage(size.toInt(), size.toInt());
     final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
 
     return BitmapDescriptor.fromBytes(bytes!.buffer.asUint8List());
@@ -284,21 +297,21 @@ class _MapPageState extends State<MapPage> {
 
   Set<Marker> _createMarkers() {
     return _devices.values.map((device) {
+      BitmapDescriptor icon;
       if (device.id.toLowerCase().contains('gateway')) {
-        return Marker(
-          markerId: MarkerId(device.id),
-          position: device.location,
-          icon: _gatewayMarkerIcon!,
-          onTap: () => _showDeviceInfo(device),
-        );
+        icon = isAndroid ? _gatewayMarkerIconLarge! : _gatewayMarkerIcon!;
       } else {
-        return Marker(
-          markerId: MarkerId(device.id),
-          position: device.location,
-          icon: device.isActive ? _activeMarkerIcon! : _inactiveMarkerIcon!,
-          onTap: () => _showDeviceInfo(device),
-        );
+        icon = device.isActive
+            ? (isAndroid ? _activeMarkerIconLarge! : _activeMarkerIcon!)
+            : (isAndroid ? _inactiveMarkerIconLarge! : _inactiveMarkerIcon!);
       }
+
+      return Marker(
+        markerId: MarkerId(device.id),
+        position: device.location,
+        icon: icon,
+        onTap: () => _showDeviceInfo(device),
+      );
     }).toSet();
   }
 
