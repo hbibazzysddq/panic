@@ -3,7 +3,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'dart:async';
 import 'dart:ui' as ui;
-
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:intl/intl.dart';
 
@@ -108,7 +108,8 @@ class _HomeScreenState extends State<HomeScreen> {
     _createMarkerIcons();
     _initializeDevices();
     _startDataFetchTimer();
-    _startPeriodicDeviceCheck(); // Add this line
+    _startPeriodicDeviceCheck();
+    _loadLogEntries(); // Tambahkan ini
   }
 
   void _initializeDevices() {
@@ -121,6 +122,23 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     });
     _updateActiveDeviceCount();
+  }
+
+  void _addLogEntry(String entry) async {
+    final now = DateTime.now();
+    final dateStr = DateFormat('yyyy-MM-dd').format(now);
+    final timeStr = DateFormat('HH:mm:ss').format(now);
+
+    setState(() {
+      if (!_logEntries.containsKey(dateStr)) {
+        _logEntries[dateStr] = [];
+      }
+      _logEntries[dateStr]!.insert(0, "$timeStr: $entry");
+    });
+
+    // Simpan log ke SharedPreferences
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('log_$dateStr', json.encode(_logEntries[dateStr]));
   }
 
   @override
@@ -143,6 +161,22 @@ class _HomeScreenState extends State<HomeScreen> {
         await _createCustomMarkerBitmap(Colors.purple, 48);
 
     setState(() {});
+  }
+
+  Future<void> _loadLogEntries() async {
+    final prefs = await SharedPreferences.getInstance();
+    final keys = prefs.getKeys();
+
+    setState(() {
+      _logEntries.clear();
+      for (final key in keys) {
+        if (key.startsWith('log_')) {
+          final dateStr = key.substring(4);
+          final logJson = prefs.getString(key) ?? '[]';
+          _logEntries[dateStr] = List<String>.from(json.decode(logJson));
+        }
+      }
+    });
   }
 
   Future<BitmapDescriptor> _createCustomMarkerBitmap(
@@ -424,19 +458,6 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
     );
-  }
-
-  void _addLogEntry(String entry) {
-    final now = DateTime.now();
-    final dateStr = DateFormat('yyyy-MM-dd').format(now);
-    final timeStr = DateFormat('HH:mm:ss').format(now);
-
-    setState(() {
-      if (!_logEntries.containsKey(dateStr)) {
-        _logEntries[dateStr] = [];
-      }
-      _logEntries[dateStr]!.insert(0, "$timeStr: $entry");
-    });
   }
 
   @override

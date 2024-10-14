@@ -111,7 +111,7 @@ class _LoginPageState extends State<LoginPage> {
               child: Column(
                 children: [
                   Container(
-                    height: 250,
+                    height: 300,
                     width: double.infinity,
                     color: const Color.fromARGB(255, 18, 106, 178),
                     padding: const EdgeInsets.all(20),

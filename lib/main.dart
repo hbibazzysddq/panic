@@ -1,6 +1,7 @@
+import 'package:panic_button/screens/home_screen.dart';
+import 'package:panic_button/screens/login_screen.dart';
 import 'package:flutter/material.dart';
-import 'package:sanurbali/screens/home_screen.dart';
-import 'package:sanurbali/screens/login_screen.dart';
+
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 
@@ -24,7 +25,7 @@ class MyApp extends StatelessWidget {
       ),
       home: const LoginPage(),
       routes: {
-        '/home': (context) => HomeScreen(), // Definisikan rute "/home"
+        '/home': (context) => const HomeScreen(), // Definisikan rute "/home"
       },
       debugShowCheckedModeBanner: false,
     );
