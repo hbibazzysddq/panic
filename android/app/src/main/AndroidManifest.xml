@@ -4,7 +4,7 @@
     <application
         android:label="Panic Button"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@drawable/sanur">
         <activity
             android:name=".MainActivity"
             android:exported="true"

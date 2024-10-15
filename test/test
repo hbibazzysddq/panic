@@ -6,7 +6,6 @@ import 'dart:ui' as ui;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:intl/intl.dart';
-import 'package:just_audio/just_audio.dart';
 
 class DeviceInfo {
   final String id;
@@ -44,8 +43,8 @@ class _HomeScreenState extends State<HomeScreen> {
   final Map<String, DeviceInfo> _devices = {};
   int _activeDevices = 0;
   DateTime _lastUpdateTime = DateTime.now();
-  final AudioPlayer _audioPlayer = AudioPlayer();
-  Timer? _alarmTimer;
+
+  MapType _mapType = MapType.satellite;
 
   Map<String, List<String>> _logEntries = {};
 
@@ -94,7 +93,6 @@ class _HomeScreenState extends State<HomeScreen> {
           _addLogEntry(
               "Panic Button ${device.displayId} deactivated due to inactivity");
           print("Panic Button $id deactivated due to inactivity");
-          stopAlarm(); // Hentikan alarm saat device menjadi tidak aktif
         }
       });
 
@@ -128,14 +126,8 @@ class _HomeScreenState extends State<HomeScreen> {
     _updateActiveDeviceCount();
   }
 
-  DateTime _lastLogTime = DateTime.now();
   void _addLogEntry(String entry) async {
     final now = DateTime.now();
-    if (now.difference(_lastLogTime) < Duration(seconds: 1)) {
-      return; // Ignore log entries that are too close together
-    }
-    _lastLogTime = now;
-
     final dateStr = DateFormat('yyyy-MM-dd').format(now);
     final timeStr = DateFormat('HH:mm:ss').format(now);
 
@@ -153,26 +145,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
-    _audioPlayer.dispose();
-    _alarmTimer?.cancel();
     _dataFetchTimer?.cancel();
     _mapController?.dispose();
     _devices.values.forEach((device) => device.inactivityTimer?.cancel());
     super.dispose();
-  }
-
-  Future<void> playAlarm() async {
-    try {
-      await _audioPlayer.setAsset('alarm/alarm.wav');
-      await _audioPlayer.play();
-    } catch (e) {
-      print("Error playing alarm: $e");
-    }
-  }
-
-  void stopAlarm() {
-    _audioPlayer.stop();
-    _alarmTimer?.cancel();
   }
 
   Future<void> _createMarkerIcons() async {
@@ -278,28 +254,30 @@ class _HomeScreenState extends State<HomeScreen> {
             // Check if this is actually new data
             final DateTime receivedAt = DateTime.parse(item['received_at']);
             if (receivedAt.isAfter(device.lastActivity)) {
+              bool previousStatus = device.isActive;
               device.lastActivity = receivedAt;
 
+              // Check for device activation
               if (!device.isActive) {
                 device.isActive = true;
                 statusChanged = true;
                 _addLogEntry("Panic Button ${device.displayId} activated");
                 print("Panic Button $deviceId activated at $now");
                 _showDeviceActivationAlert(device);
+              }
 
-                // Memainkan alarm segera
-                playAlarm();
+              // Check for device deactivation
+              else if (device.isActive && shouldDeactivate(item)) {
+                device.isActive = false;
+                statusChanged = true;
+                _addLogEntry("Panic Button ${device.displayId} deactivated");
+                print("Panic Button $deviceId deactivated at $now");
+              }
 
-                // Set timer untuk memainkan alarm setiap 5 menit
-                _alarmTimer?.cancel(); // Membatalkan timer yang ada jika ada
-                _alarmTimer = Timer.periodic(Duration(minutes: 5), (timer) {
-                  if (_devices.values.any((d) => d.isActive)) {
-                    playAlarm();
-                  } else {
-                    timer.cancel();
-                    stopAlarm();
-                  }
-                });
+              // Log status change if it occurred
+              if (previousStatus != device.isActive) {
+                _addLogEntry(
+                    "Panic Button ${device.displayId} changed status: ${previousStatus ? 'active' : 'inactive'} -> ${device.isActive ? 'active' : 'inactive'}");
               }
             }
           }
@@ -316,22 +294,28 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+// Helper method to determine if a device should be deactivated based on received data
+  bool shouldDeactivate(Map<String, dynamic> data) {
+    // Implement your logic here to determine if the device should be deactivated
+    // This could be based on a specific field in the data, a timeout, or any other criteria
+    // For example:
+    // return data['payload_fields']['button_status'] == 'off';
+    return false; // Placeholder, replace with your actual logic
+  }
+
   void _resetAllDevices() {
-    bool anyDeviceWasActive = false;
     setState(() {
       _devices.forEach((id, device) {
-        if (device.isActive) {
-          anyDeviceWasActive = true;
-          device.isActive = false;
-          device.inactivityTimer?.cancel();
+        bool wasActive = device.isActive;
+        device.isActive = false;
+        device.inactivityTimer?.cancel();
+
+        if (wasActive) {
+          _addLogEntry("Panic Button ${device.displayId} deactivated (reset)");
         }
+        _addLogEntry("Panic Button ${device.displayId} reset to inactive");
+        print("Panic Button $id has been reset to inactive");
       });
-
-      if (anyDeviceWasActive) {
-        _addLogEntry("All Panic Buttons reset to inactive");
-      }
-
-      stopAlarm(); // Hentikan alarm saat semua device di-reset
       _updateActiveDeviceCount();
       _lastUpdateTime = DateTime.now();
     });
@@ -379,17 +363,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Set<Marker> _createMarkers() {
     return _devices.values.map((device) {
-      BitmapDescriptor? icon;
+      BitmapDescriptor icon;
       if (device.id.toLowerCase().contains('gateway')) {
-        icon = isAndroid ? _gatewayMarkerIconLarge : _gatewayMarkerIcon;
+        icon = isAndroid ? _gatewayMarkerIconLarge! : _gatewayMarkerIcon!;
       } else {
         icon = device.isActive
-            ? (isAndroid ? _activeMarkerIconLarge : _activeMarkerIcon)
-            : (isAndroid ? _inactiveMarkerIconLarge : _inactiveMarkerIcon);
+            ? (isAndroid ? _activeMarkerIconLarge! : _activeMarkerIcon!)
+            : (isAndroid ? _inactiveMarkerIconLarge! : _inactiveMarkerIcon!);
       }
-
-      // Gunakan ikon default jika ikon masih null
-      icon ??= BitmapDescriptor.defaultMarker;
 
       return Marker(
         markerId: MarkerId(device.id),
@@ -451,7 +432,7 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (BuildContext context) {
         bool isGateway = device.id.toLowerCase().contains('gateway');
         return Container(
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.all(16),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -513,90 +494,267 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    Timer? _resetDebounceTimer;
-    return Scaffold(
-      appBar: AppBar(
-        title: Column(
+    return DefaultTabController(
+      length: 2, // Pastikan jumlah tab sesuai dengan TabBar
+      child: Scaffold(
+        appBar: PreferredSize(
+          preferredSize: Size.fromHeight(80), // Sesuaikan tinggi AppBar
+          child: AppBar(
+            automaticallyImplyLeading: false,
+            bottom: const TabBar(
+              indicatorPadding: EdgeInsets
+                  .zero, // Menghilangkan padding pada indicator TabBar
+              tabs: [
+                Tab(icon: Icon(Icons.map), text: 'Map'),
+                Tab(icon: Icon(Icons.list), text: 'Log'),
+              ],
+            ),
+          ),
+        ),
+        body: TabBarView(
+          children: [
+            _buildMapView(),
+            _buildLogView(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMapView() {
+    return Stack(
+      children: [
+        GoogleMap(
+          onMapCreated: _onMapCreated,
+          mapType: _mapType,
+          markers: _createMarkers(),
+          initialCameraPosition: const CameraPosition(
+            target: _defaultCenter,
+            zoom: 15,
+          ),
+          myLocationButtonEnabled: false,
+          zoomControlsEnabled: false,
+        ),
+        Positioned(
+          right: 16,
+          bottom: 96,
+          child: Column(
+            children: [
+              _buildFloatingActionButton(
+                onPressed: _fitBounds,
+                tooltip: 'Fit all markers',
+                icon: Icons.center_focus_strong,
+                heroTag: "fitBounds",
+              ),
+              const SizedBox(height: 16),
+              _buildFloatingActionButton(
+                onPressed: _toggleMapType,
+                tooltip: 'Change map type',
+                icon: Icons.layers,
+                heroTag: "changeMapType",
+              ),
+            ],
+          ),
+        ),
+        Positioned(
+          left: 16,
+          top: 16,
+          child: _buildInfoCard(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFloatingActionButton({
+    required VoidCallback onPressed,
+    required String tooltip,
+    required IconData icon,
+    required String heroTag,
+  }) {
+    return FloatingActionButton(
+      heroTag: heroTag,
+      onPressed: onPressed,
+      tooltip: tooltip,
+      backgroundColor: Colors.white,
+      foregroundColor: Colors.blue,
+      child: Icon(icon),
+    );
+  }
+
+  Widget _buildInfoCard() {
+    return Card(
+      color: Colors.white.withOpacity(0.8),
+      child: Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Panic Button Map'),
+            Text('Active Devices: $_activeDevices',
+                style: const TextStyle(fontWeight: FontWeight.bold)),
             Text(
-              'Active: $_activeDevices | Last Update: ${DateFormat('HH:mm:ss').format(_lastUpdateTime)}',
-              style: const TextStyle(fontSize: 12),
+              'Last Update: ${DateFormat('HH:mm:ss').format(_lastUpdateTime)}',
             ),
           ],
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () {
-              if (_resetDebounceTimer?.isActive ?? false) return;
-              _resetDebounceTimer = Timer(const Duration(milliseconds: 30), () {
-                _resetAllDevices();
-              });
-            },
-            tooltip: 'Reset all panic buttons',
-          ),
-        ],
       ),
-      drawer: Drawer(
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: <Widget>[
-            const DrawerHeader(
-              decoration: BoxDecoration(
-                color: Colors.blue,
-              ),
-              child: Text(
-                'Timestamp Log',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 24,
-                ),
-              ),
+    );
+  }
+
+  void _toggleMapType() {
+    setState(() {
+      _mapType =
+          _mapType == MapType.satellite ? MapType.normal : MapType.satellite;
+    });
+  }
+
+  Widget _buildLogView() {
+    return TimestampLog(logEntries: _logEntries);
+  }
+}
+
+class TimestampLog extends StatelessWidget {
+  final Map<String, List<String>> logEntries;
+
+  const TimestampLog({Key? key, required this.logEntries}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final sortedDates = logEntries.keys.toList()
+      ..sort((a, b) => b.compareTo(a));
+    return ListView.builder(
+      itemCount: sortedDates.length,
+      itemBuilder: (context, index) {
+        final date = sortedDates[index];
+        final entries = logEntries[date]!;
+        return Card(
+          margin: EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+          child: ExpansionTile(
+            title: Text(
+              date,
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
             ),
-            ..._logEntries.entries.map((entry) {
-              return ExpansionTile(
-                title: Text(
-                  entry.key,
-                  style: const TextStyle(fontWeight: FontWeight.bold),
+            children: entries.map((logEntry) {
+              final parts = logEntry.split(': ');
+              final time = parts[0];
+              final message = parts.sublist(1).join(': ');
+              return ListTile(
+                leading: Icon(
+                  message.contains('activated') ? Icons.warning : Icons.info,
+                  color:
+                      message.contains('activated') ? Colors.red : Colors.blue,
                 ),
-                children: entry.value
-                    .map((logEntry) => ListTile(
-                          title: Text(logEntry),
-                        ))
-                    .toList(),
+                title: Text(
+                  time,
+                  style: TextStyle(fontWeight: FontWeight.w500),
+                ),
+                subtitle: Text(
+                  message,
+                  style: TextStyle(fontSize: 14),
+                ),
               );
             }).toList(),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
+  final int activeDevices;
+  final DateTime lastUpdateTime;
+  final VoidCallback onReset;
+
+  const CustomAppBar({
+    Key? key,
+    required this.activeDevices,
+    required this.lastUpdateTime,
+    required this.onReset,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Colors.blue.shade700, Colors.blue.shade900],
+        ),
+      ),
+      child: SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AppBar(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              title: Text(
+                'Panic Button Map',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+              ),
+              actions: [
+                IconButton(
+                  icon: Icon(Icons.refresh, color: Colors.white),
+                  onPressed: onReset,
+                  tooltip: 'Reset all panic buttons',
+                ),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Active: $activeDevices',
+                    style: TextStyle(color: Colors.white, fontSize: 16),
+                  ),
+                  Text(
+                    'Last Update: ${DateFormat('HH:mm:ss').format(lastUpdateTime)}',
+                    style: TextStyle(color: Colors.white, fontSize: 16),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
-      body: Stack(
-        children: [
-          GoogleMap(
-            onMapCreated: _onMapCreated,
-            mapType: MapType.satellite,
-            markers: _createMarkers(),
-            initialCameraPosition: const CameraPosition(
-              target: _defaultCenter,
-              zoom: 15,
-            ),
-            myLocationButtonEnabled: false,
-            zoomControlsEnabled: false,
+    );
+  }
+
+  @override
+  Size get preferredSize => Size.fromHeight(kToolbarHeight * 2);
+}
+
+class CustomTabBar extends StatelessWidget implements PreferredSizeWidget {
+  const CustomTabBar({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.blue.shade900,
+      child: TabBar(
+        indicator: BoxDecoration(
+          color: Colors.white.withOpacity(0.2),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        labelColor: Colors.white,
+        unselectedLabelColor: Colors.white.withOpacity(0.6),
+        tabs: [
+          Tab(
+            icon: Icon(Icons.map),
+            text: 'Map',
           ),
-          Positioned(
-            right: 10,
-            bottom: 90,
-            child: FloatingActionButton(
-              onPressed: _fitBounds,
-              tooltip: 'Fit all markers',
-              backgroundColor: Colors.white,
-              foregroundColor: Colors.blue,
-              child: const Icon(Icons.center_focus_strong),
-            ),
+          Tab(
+            icon: Icon(Icons.list),
+            text: 'Log',
           ),
         ],
       ),
     );
   }
+
+  @override
+  Size get preferredSize => Size.fromHeight(kToolbarHeight);
 }
