@@ -1,0 +1,166 @@
+import 'dart:io';  // For file handling
+import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';  // For getting the app's directory
+import 'package:permission_handler/permission_handler.dart';  // For permissions
+import 'package:file_picker/file_picker.dart';  // For file picking
+
+void main() {
+  runApp(MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Data Logging Example with Counter',
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+      ),
+      home: LogFileDemo(),
+    );
+  }
+}
+
+class LogFileDemo extends StatefulWidget {
+  @override
+  _LogFileDemoState createState() => _LogFileDemoState();
+}
+
+class _LogFileDemoState extends State<LogFileDemo> {
+  final LogStorage logStorage = LogStorage();  // Instance of the log storage class
+  String logData = '';  // Variable to store the log content
+  int counter = 0;  // Initialize a counter
+
+  @override
+  void initState() {
+    super.initState();
+    _requestPermission();  // Request storage permission on init
+  }
+
+  // Function to request storage permission
+  Future<void> _requestPermission() async {
+    if (await Permission.storage.request().isGranted) {
+      // Permission granted, proceed with file operations
+    }
+  }
+
+  // Function to add a new log entry with the counter
+  Future<void> _addLogEntry() async {
+    counter++;  // Increment the counter each time a log is added
+    await logStorage.writeLog("Log $counter: ${DateTime.now()}");
+  }
+
+  // Function to read logs from the file and display them in the UI
+  Future<void> _readLogs() async {
+    String logs = await logStorage.readLogs();
+    setState(() {
+      logData = logs;
+    });
+  }
+
+  // Function to save logs to the external storage as a .txt file
+  Future<void> _saveLogs() async {
+    final logs = await logStorage.readLogs();
+    if (logs.isNotEmpty) {
+      // Let the user pick a file location
+      String? selectedPath = await FilePicker.platform.getDirectoryPath();
+      if (selectedPath != null) {
+        final result = await logStorage.saveLogToCustomPath(selectedPath, logs);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result ? 'Log saved successfully!' : 'Failed to save log.'))
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No directory selected!'))
+        );
+      }
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No logs to save!'))
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Logging'),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.start,
+          children: [
+            ElevatedButton(
+              onPressed: _addLogEntry,  // Add a log entry
+              child: Text('Add Log Entry'),
+            ),
+            SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: _readLogs,  // Read and display logs
+              child: Text('Read Logs'),
+            ),
+            SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: _saveLogs,  // Save logs to external storage
+              child: Text('Save Logs to Custom Location'),
+            ),
+            SizedBox(height: 20),
+            Expanded(
+              child: SingleChildScrollView(
+                child: Text(
+                  logData,  // Display the logs
+                  style: TextStyle(fontSize: 16),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// Class to handle file operations
+class LogStorage {
+  // Function to get the app's local external path
+  Future<String> get _externalPath async {
+    final directory = await getExternalStorageDirectory();
+    return directory?.path ?? '';  // Fallback to empty string if null
+  }
+
+  // Function to get the log file in external storage
+  Future<File> getLogFile() async {
+    final path = await _externalPath;
+    return File('$path/log.txt');
+  }
+
+  // Function to write a log entry to the file
+  Future<File> writeLog(String logData) async {
+    final file = await getLogFile();
+    return file.writeAsString('$logData\n', mode: FileMode.append);  // Appends log data
+  }
+
+  // Function to read logs from the file
+  Future<String> readLogs() async {
+    try {
+      final file = await getLogFile();
+      String contents = await file.readAsString();
+      return contents;
+    } catch (e) {
+      return 'Error reading log file: $e';
+    }
+  }
+
+  // Function to save the logs to a custom path as a file
+  Future<bool> saveLogToCustomPath(String path, String logData) async {
+    try {
+      final file = File('$path/log.txt');
+      await file.writeAsString(logData);  // Write all logs to file
+      return true;
+    } catch (e) {
+      return false;  // Return false if any error occurs
+    }
+  }
+}

@@ -8,6 +8,7 @@ import 'package:panic_button/data/manual_coordinate.dart';
 import 'package:panic_button/service/alarm_service.dart';
 import 'package:panic_button/service/data_service.dart';
 import 'package:panic_button/service/log_service.dart';
+import 'package:share_plus/share_plus.dart';
 import '../models/device_info.dart';
 import '../components/log_component.dart';
 import '../components/device_info_bottom_sheet.dart';
@@ -327,10 +328,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      drawer: LogComponent(
-        logEntries: _logEntries,
-        logService: _logService,
-      ),
+      drawer: LogComponent(logEntries: _logEntries, logService: LogService()),
       body: MapComponent(
         devices: _devices,
         onMapCreated: _onMapCreated,
@@ -345,6 +343,21 @@ class _HomeScreenState extends State<HomeScreen> {
         fitBounds: _fitBounds,
         showDeviceInfo: _showDeviceInfo,
         markerIcons: const {},
+      ),
+    );
+  }
+
+  void _shareLogFile() async {
+    final logFile = await _logService.exportLogToFile();
+    await Share.shareXFiles([XFile(logFile.path)],
+        text: 'Check out the panic button logs.');
+  }
+
+  void _downloadLogFile() async {
+    final filePath = await _logService.getLogFilePath();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Log file saved at: $filePath'),
       ),
     );
   }
