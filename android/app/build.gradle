@@ -40,10 +40,15 @@ android {
             signingConfig = signingConfigs.debug
         }
     }
+
+    // Tambahkan blok ini untuk mengubah nama APK
+    applicationVariants.all { variant ->
+        variant.outputs.all {
+            outputFileName = "Panic-Button-Sanur.apk"
+        }
+    }
 }
 
 flutter {
     source = "../.."
-}   
-
-
+}
