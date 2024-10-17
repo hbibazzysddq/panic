@@ -1,22 +1,68 @@
+import 'dart:io';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:share_plus/share_plus.dart';
-
 import '../service/log_service.dart';
 
-class LogComponent extends StatelessWidget {
-  final Map<String, List<String>> logEntries;
+class LogComponent extends StatefulWidget {
   final LogService logService;
 
   const LogComponent({
     super.key,
-    required this.logEntries,
     required this.logService,
+    required Map<String, List<String>> logEntries,
   });
+
+  @override
+  // ignore: library_private_types_in_public_api
+  _LogComponentState createState() => _LogComponentState();
+}
+
+class _LogComponentState extends State<LogComponent> {
+  late Future<Map<String, List<String>>> _logEntriesFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshLogs();
+  }
+
+  void _refreshLogs() {
+    setState(() {
+      _logEntriesFuture = widget.logService.loadAllLogEntries();
+    });
+  }
+
+  Future<String> _getSafeFilePath(String fileName) async {
+    final directory = await getApplicationDocumentsDirectory();
+    return '${directory.path}/$fileName';
+  }
+
+  Future<bool> _requestStoragePermission() async {
+    if (await Permission.storage.isGranted) {
+      return true;
+    }
+
+    if (await Permission.manageExternalStorage.isGranted) {
+      return true;
+    }
+
+    // Untuk Android 11 ke atas, cek izin MANAGE_EXTERNAL_STORAGE
+    if (await Permission.manageExternalStorage.request().isGranted) {
+      return true;
+    }
+
+    // Untuk Android 10 ke bawah, minta izin storage biasa
+    var status = await Permission.storage.request();
+    return status.isGranted;
+  }
 
   void _exportLog(BuildContext context) async {
     try {
-      final file = await logService.exportLogToFile();
+      final file = await widget.logService.exportLogToFile();
       await Share.shareXFiles([XFile(file.path)], text: 'Timestamp Log');
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -25,34 +71,58 @@ class LogComponent extends StatelessWidget {
     }
   }
 
-  void _downloadLog(BuildContext context) async {
+  Future<void> _downloadLog(BuildContext context) async {
     try {
-      // Memilih lokasi untuk menyimpan file
-      FilePickerResult? result = (await FilePicker.platform.saveFile(
-        dialogTitle: 'Pilih lokasi untuk menyimpan log',
-        fileName: 'timestamp_log.txt',
-      )) as FilePickerResult?;
+      print("Starting download process");
 
-      if (result != null) {
-        // Mendapatkan path dari file yang dipilih
-        String? path = result.files.single.path;
-
-        if (path != null) {
-          // Menyimpan file di lokasi yang dipilih
-          final file = await logService.exportLogToFile();
-          await file.copy(path); // Menyalin file ke lokasi yang dipilih
-
-          // Menampilkan pesan berhasil
-          // ignore: use_build_context_synchronously
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Log file saved at: $path')),
-          );
-        }
+      // Request storage permission
+      bool hasPermission = await _requestStoragePermission();
+      if (!hasPermission) {
+        print("Storage permission denied");
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text('Storage permission is required to save the file')),
+        );
+        return;
       }
-    } catch (e) {
-      // ignore: use_build_context_synchronously
+
+      // Let user pick save location
+      String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
+      if (selectedDirectory == null) {
+        print("No directory selected");
+        return;
+      }
+
+      final fileName =
+          'panic_button_log_${DateTime.now().millisecondsSinceEpoch}.txt';
+      final file = File('$selectedDirectory/$fileName');
+
+      print("Attempting to write to file: ${file.path}");
+
+      // Get log content
+      final logContent = await widget.logService.getLogContent();
+
+      // Write to file
+      await file.writeAsString(logContent);
+
+      print("File written successfully");
+
+      // Verify file content
+      final verificationContent = await file.readAsString();
+      print("Verification: File content length: ${verificationContent.length}");
+
+      if (verificationContent.isEmpty) {
+        print("Warning: File is empty after writing");
+      }
+
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to download log: $e')),
+        SnackBar(content: Text('Log file saved at: ${file.path}')),
+      );
+    } catch (e, stackTrace) {
+      print('Error in _downloadLog: $e');
+      print('Stack trace: $stackTrace');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to save log: ${e.toString()}')),
       );
     }
   }
@@ -67,6 +137,11 @@ class LogComponent extends StatelessWidget {
             automaticallyImplyLeading: false,
             actions: [
               IconButton(
+                icon: Icon(Icons.refresh),
+                onPressed: _refreshLogs,
+                tooltip: 'Refresh Logs',
+              ),
+              IconButton(
                 icon: Icon(Icons.share),
                 onPressed: () => _exportLog(context),
                 tooltip: 'Export Log',
@@ -79,17 +154,30 @@ class LogComponent extends StatelessWidget {
             ],
           ),
           Expanded(
-            child: ListView(
-              children: logEntries.entries.map((entry) {
-                return ExpansionTile(
-                  title: Text(entry.key),
-                  children: entry.value
-                      .map((logEntry) => ListTile(
-                            title: Text(logEntry),
-                          ))
-                      .toList(),
-                );
-              }).toList(),
+            child: FutureBuilder<Map<String, List<String>>>(
+              future: _logEntriesFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return Center(child: CircularProgressIndicator());
+                } else if (snapshot.hasError) {
+                  return Center(child: Text('Error: ${snapshot.error}'));
+                } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                  return Center(child: Text('No log entries'));
+                } else {
+                  return ListView(
+                    children: snapshot.data!.entries.map((entry) {
+                      return ExpansionTile(
+                        title: Text(entry.key),
+                        children: entry.value
+                            .map((logEntry) => ListTile(
+                                  title: Text(logEntry),
+                                ))
+                            .toList(),
+                      );
+                    }).toList(),
+                  );
+                }
+              },
             ),
           ),
         ],

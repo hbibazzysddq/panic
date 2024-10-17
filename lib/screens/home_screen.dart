@@ -38,9 +38,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   final AlarmService _alarmService = AlarmService();
   final DataService _dataService = DataService();
+
   final LogService _logService = LogService();
   final MarkerService _markerService = MarkerService();
 
+  @override
   @override
   @override
   void initState() {
@@ -189,7 +191,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _addLogEntry(String entry) async {
     await _logService.addLogEntry(entry);
-    await _loadLogEntries();
+    await _loadLogEntries(); // Reload log entries after adding a new one
   }
 
   void _resetAllDevices() {
@@ -328,7 +330,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      drawer: LogComponent(logEntries: _logEntries, logService: LogService()),
+      drawer: LogComponent(logEntries: _logEntries, logService: _logService),
       body: MapComponent(
         devices: _devices,
         onMapCreated: _onMapCreated,
