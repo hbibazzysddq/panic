@@ -1,13 +1,11 @@
 import 'dart:convert';
-import 'dart:io';
-import 'dart:html' as html;
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:share_plus/share_plus.dart';
 import '../service/log_service.dart';
+
+// Conditional imports
+import 'log_component_web.dart' if (dart.library.io) 'log_component_mobile.dart'
+    as platform;
 
 class LogComponent extends StatefulWidget {
   final LogService logService;
@@ -38,17 +36,6 @@ class _LogComponentState extends State<LogComponent> {
     });
   }
 
-  Future<bool> _requestStoragePermission() async {
-    if (!kIsWeb) {
-      if (await Permission.storage.isGranted) return true;
-      if (await Permission.manageExternalStorage.isGranted) return true;
-      if (await Permission.manageExternalStorage.request().isGranted)
-        return true;
-      return await Permission.storage.request().isGranted;
-    }
-    return true;
-  }
-
   void _handleLogAction(BuildContext context) async {
     if (_isProcessing) return;
     setState(() => _isProcessing = true);
@@ -59,16 +46,13 @@ class _LogComponentState extends State<LogComponent> {
         throw Exception('No log entries to export');
       }
 
-      if (kIsWeb) {
-        _downloadLogWeb(logContent);
-      } else {
-        await _shareLogMobile(logContent);
-      }
+      // Handle log action (download or share) based on platform
+      await platform.handleLogAction(logContent);
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-            content: Text(
-                kIsWeb ? 'Log file downloaded' : 'Log shared successfully')),
+          content: Text('Log downloaded and saved successfully'),
+        ),
       );
     } catch (e) {
       print('Error handling log action: $e');
@@ -78,26 +62,6 @@ class _LogComponentState extends State<LogComponent> {
     } finally {
       setState(() => _isProcessing = false);
     }
-  }
-
-  void _downloadLogWeb(String logContent) {
-    final bytes = utf8.encode(logContent);
-    final blob = html.Blob([bytes]);
-    final url = html.Url.createObjectUrlFromBlob(blob);
-    final anchor = html.AnchorElement(href: url)
-      ..setAttribute("download", "panic_button_log.txt")
-      ..click();
-    html.Url.revokeObjectUrl(url);
-  }
-
-  Future<void> _shareLogMobile(String logContent) async {
-    if (!await _requestStoragePermission()) {
-      throw Exception('Storage permission denied');
-    }
-    final directory = await getApplicationDocumentsDirectory();
-    final file = File('${directory.path}/panic_button_log.txt');
-    await file.writeAsString(logContent);
-    await Share.shareXFiles([XFile(file.path)], text: 'Timestamp Log');
   }
 
   @override
@@ -115,10 +79,10 @@ class _LogComponentState extends State<LogComponent> {
                 tooltip: 'Refresh Logs',
               ),
               IconButton(
-                icon: Icon(kIsWeb ? Icons.download : Icons.share),
+                icon: Icon(kIsWeb ? Icons.download : Icons.download),
                 onPressed:
                     _isProcessing ? null : () => _handleLogAction(context),
-                tooltip: kIsWeb ? 'Download Log' : 'Share Log',
+                tooltip: kIsWeb ? 'Download Log' : 'Download Log',
               ),
             ],
           ),
