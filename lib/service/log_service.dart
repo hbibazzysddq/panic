@@ -8,69 +8,38 @@ class LogService {
   Future<Map<String, List<String>>> loadAllLogEntries() async {
     final prefs = await SharedPreferences.getInstance();
     final keys = prefs.getKeys();
+    print("Total keys in SharedPreferences: ${keys.length}");
+
     Map<String, List<String>> logEntries = {};
 
-    print('Found ${keys.length} keys in SharedPreferences');
-
-    List<String> sortedKeys = keys
-        .where((key) => key.startsWith('log_'))
-        .toList()
-      ..sort((a, b) => b.compareTo(a));
-
-    print('Found ${sortedKeys.length} log keys');
-
-    for (final key in sortedKeys) {
-      final value = prefs.get(key);
-      List<String> entries = [];
-      if (value is String) {
-        try {
-          entries = List<String>.from(json.decode(value));
-          print('Decoded ${entries.length} entries for key: $key');
-        } catch (e) {
-          print('Error decoding entries for key $key: $e');
-          entries = [value];
-        }
-      } else if (value is List) {
-        entries = value.map((e) => e.toString()).toList();
-        print('Converted ${entries.length} list entries for key: $key');
+    for (final key in keys) {
+      if (key.startsWith('log_')) {
+        final entries =
+            List<String>.from(jsonDecode(prefs.getString(key) ?? '[]'));
+        logEntries[key.substring(4)] = entries;
+        print("Loaded ${entries.length} entries for $key");
       }
-      entries = entries.reversed.toList();
-      logEntries[key.substring(4)] = entries;
     }
 
-    print('Total log entries: ${logEntries.length} dates');
+    print("Total log entries: ${logEntries.length} dates");
     return logEntries;
   }
 
   Future<void> addLogEntry(String entry) async {
-    final now = DateTime.now();
-    final dateStr = DateFormat('yyyy-MM-dd').format(now);
-    final timeStr = DateFormat('HH:mm:ss').format(now);
-    final logEntry = "$timeStr: $entry";
-
     final prefs = await SharedPreferences.getInstance();
+    final now = DateTime.now();
+    final dateStr =
+        "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
     final key = 'log_$dateStr';
     List<String> entries = [];
 
-    final existingValue = prefs.get(key);
-    if (existingValue != null) {
-      if (existingValue is String) {
-        try {
-          entries = List<String>.from(json.decode(existingValue));
-        } catch (e) {
-          entries = [existingValue];
-        }
-      } else if (existingValue is List) {
-        entries = existingValue.map((e) => e.toString()).toList();
-      }
+    if (prefs.containsKey(key)) {
+      entries = List<String>.from(jsonDecode(prefs.getString(key) ?? '[]'));
     }
+    entries.add("${now.hour}:${now.minute}:${now.second} - $entry");
 
-    entries.insert(0, logEntry); // Insert new entry at the beginning
-    await prefs.setString(key, json.encode(entries));
-
-    // Also write to file for backup
-    final file = await _getLogFile();
-    await file.writeAsString('$dateStr $logEntry\n', mode: FileMode.append);
+    await prefs.setString(key, jsonEncode(entries));
+    print("Log entry added: $entry");
   }
 
   Future<File> _getLogFile() async {

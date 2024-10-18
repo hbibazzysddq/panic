@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:io';
-
+import 'dart:html' as html;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
@@ -11,18 +13,18 @@ class LogComponent extends StatefulWidget {
   final LogService logService;
 
   const LogComponent({
-    super.key,
+    Key? key,
     required this.logService,
     required Map<String, List<String>> logEntries,
-  });
+  }) : super(key: key);
 
   @override
-  // ignore: library_private_types_in_public_api
   _LogComponentState createState() => _LogComponentState();
 }
 
 class _LogComponentState extends State<LogComponent> {
   late Future<Map<String, List<String>>> _logEntriesFuture;
+  bool _isProcessing = false;
 
   @override
   void initState() {
@@ -36,95 +38,66 @@ class _LogComponentState extends State<LogComponent> {
     });
   }
 
-  Future<String> _getSafeFilePath(String fileName) async {
-    final directory = await getApplicationDocumentsDirectory();
-    return '${directory.path}/$fileName';
-  }
-
   Future<bool> _requestStoragePermission() async {
-    if (await Permission.storage.isGranted) {
-      return true;
+    if (!kIsWeb) {
+      if (await Permission.storage.isGranted) return true;
+      if (await Permission.manageExternalStorage.isGranted) return true;
+      if (await Permission.manageExternalStorage.request().isGranted)
+        return true;
+      return await Permission.storage.request().isGranted;
     }
-
-    if (await Permission.manageExternalStorage.isGranted) {
-      return true;
-    }
-
-    // Untuk Android 11 ke atas, cek izin MANAGE_EXTERNAL_STORAGE
-    if (await Permission.manageExternalStorage.request().isGranted) {
-      return true;
-    }
-
-    // Untuk Android 10 ke bawah, minta izin storage biasa
-    var status = await Permission.storage.request();
-    return status.isGranted;
+    return true;
   }
 
-  void _exportLog(BuildContext context) async {
+  void _handleLogAction(BuildContext context) async {
+    if (_isProcessing) return;
+    setState(() => _isProcessing = true);
+
     try {
-      final file = await widget.logService.exportLogToFile();
-      await Share.shareXFiles([XFile(file.path)], text: 'Timestamp Log');
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to export log: $e')),
-      );
-    }
-  }
-
-  Future<void> _downloadLog(BuildContext context) async {
-    try {
-      print("Starting download process");
-
-      // Request storage permission
-      bool hasPermission = await _requestStoragePermission();
-      if (!hasPermission) {
-        print("Storage permission denied");
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('Storage permission is required to save the file')),
-        );
-        return;
-      }
-
-      // Let user pick save location
-      String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
-      if (selectedDirectory == null) {
-        print("No directory selected");
-        return;
-      }
-
-      final fileName =
-          'panic_button_log_${DateTime.now().millisecondsSinceEpoch}.txt';
-      final file = File('$selectedDirectory/$fileName');
-
-      print("Attempting to write to file: ${file.path}");
-
-      // Get log content
       final logContent = await widget.logService.getLogContent();
+      if (logContent.isEmpty) {
+        throw Exception('No log entries to export');
+      }
 
-      // Write to file
-      await file.writeAsString(logContent);
-
-      print("File written successfully");
-
-      // Verify file content
-      final verificationContent = await file.readAsString();
-      print("Verification: File content length: ${verificationContent.length}");
-
-      if (verificationContent.isEmpty) {
-        print("Warning: File is empty after writing");
+      if (kIsWeb) {
+        _downloadLogWeb(logContent);
+      } else {
+        await _shareLogMobile(logContent);
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Log file saved at: ${file.path}')),
+        SnackBar(
+            content: Text(
+                kIsWeb ? 'Log file downloaded' : 'Log shared successfully')),
       );
-    } catch (e, stackTrace) {
-      print('Error in _downloadLog: $e');
-      print('Stack trace: $stackTrace');
+    } catch (e) {
+      print('Error handling log action: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to save log: ${e.toString()}')),
+        SnackBar(content: Text('Failed to process log: $e')),
       );
+    } finally {
+      setState(() => _isProcessing = false);
     }
+  }
+
+  void _downloadLogWeb(String logContent) {
+    final bytes = utf8.encode(logContent);
+    final blob = html.Blob([bytes]);
+    final url = html.Url.createObjectUrlFromBlob(blob);
+    final anchor = html.AnchorElement(href: url)
+      ..setAttribute("download", "panic_button_log.txt")
+      ..click();
+    html.Url.revokeObjectUrl(url);
+  }
+
+  Future<void> _shareLogMobile(String logContent) async {
+    if (!await _requestStoragePermission()) {
+      throw Exception('Storage permission denied');
+    }
+    final directory = await getApplicationDocumentsDirectory();
+    final file = File('${directory.path}/panic_button_log.txt');
+    await file.writeAsString(logContent);
+    await Share.shareXFiles([XFile(file.path)], text: 'Timestamp Log');
   }
 
   @override
@@ -142,14 +115,10 @@ class _LogComponentState extends State<LogComponent> {
                 tooltip: 'Refresh Logs',
               ),
               IconButton(
-                icon: Icon(Icons.share),
-                onPressed: () => _exportLog(context),
-                tooltip: 'Export Log',
-              ),
-              IconButton(
-                icon: Icon(Icons.download),
-                onPressed: () => _downloadLog(context),
-                tooltip: 'Download Log',
+                icon: Icon(kIsWeb ? Icons.download : Icons.share),
+                onPressed:
+                    _isProcessing ? null : () => _handleLogAction(context),
+                tooltip: kIsWeb ? 'Download Log' : 'Share Log',
               ),
             ],
           ),
