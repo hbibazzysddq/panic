@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import '../service/log_service.dart';
+import '../service/auth_service.dart';
 
 // Conditional imports
 import 'log_component_web.dart' if (dart.library.io) 'log_component_mobile.dart'
@@ -9,10 +10,12 @@ import 'log_component_web.dart' if (dart.library.io) 'log_component_mobile.dart'
 
 class LogComponent extends StatefulWidget {
   final LogService logService;
+  final AuthService authService;
 
   const LogComponent({
     Key? key,
     required this.logService,
+    required this.authService,
     required Map<String, List<String>> logEntries,
   }) : super(key: key);
 
@@ -22,11 +25,13 @@ class LogComponent extends StatefulWidget {
 
 class _LogComponentState extends State<LogComponent> {
   late Future<Map<String, List<String>>> _logEntriesFuture;
+  late AuthService _authService;
   bool _isProcessing = false;
 
   @override
   void initState() {
     super.initState();
+    _authService = widget.authService;
     _refreshLogs();
   }
 
@@ -64,6 +69,42 @@ class _LogComponentState extends State<LogComponent> {
     }
   }
 
+  Future<void> _showLogoutConfirmation(BuildContext context) async {
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Konfirmasi Logout'),
+          content: const SingleChildScrollView(
+            child: ListBody(
+              children: <Widget>[
+                Text('Apakah Anda yakin ingin keluar?'),
+                Text('Anda harus login kembali untuk mengakses aplikasi.'),
+              ],
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: Text('Batal'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+            TextButton(
+              child: Text('Logout'),
+              onPressed: () async {
+                Navigator.of(context).pop();
+                await _authService.logout();
+                Navigator.of(context).pushReplacementNamed('/login');
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Drawer(
@@ -83,6 +124,11 @@ class _LogComponentState extends State<LogComponent> {
                 onPressed:
                     _isProcessing ? null : () => _handleLogAction(context),
                 tooltip: kIsWeb ? 'Download Log' : 'Download Log',
+              ),
+              IconButton(
+                icon: Icon(Icons.exit_to_app),
+                onPressed: () => _showLogoutConfirmation(context),
+                tooltip: 'Logout',
               ),
             ],
           ),

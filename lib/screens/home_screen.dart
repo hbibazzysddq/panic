@@ -1,4 +1,3 @@
-// file: lib/screens/home_screen.dart
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'dart:async';
@@ -6,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:panic_button/components/map_componet.dart';
 import 'package:panic_button/data/manual_coordinate.dart';
 import 'package:panic_button/service/alarm_service.dart';
+import 'package:panic_button/service/auth_service.dart';
 import 'package:panic_button/service/data_service.dart';
 import 'package:panic_button/service/log_service.dart';
 import 'package:share_plus/share_plus.dart';
@@ -13,6 +13,8 @@ import '../models/device_info.dart';
 import '../components/log_component.dart';
 import '../components/device_info_bottom_sheet.dart';
 import '../service/marker_service.dart';
+import 'package:panic_button/utils/platform_check.dart';
+import 'package:panic_button/service/notification_service.dart'; // Tambahan baru
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -38,12 +40,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   final AlarmService _alarmService = AlarmService();
   final DataService _dataService = DataService();
-
   final LogService _logService = LogService();
   final MarkerService _markerService = MarkerService();
+  final NotificationService _notificationService =
+      NotificationService(); // Tambahan baru
+  final AuthService _authService = AuthService();
 
-  @override
-  @override
   @override
   void initState() {
     super.initState();
@@ -51,6 +53,9 @@ class _HomeScreenState extends State<HomeScreen> {
     _startDataFetchTimer();
     _startPeriodicDeviceCheck();
     _loadLogEntries();
+    if (isMobilePlatform) {
+      _notificationService.initialize(); // Perubahan di sini
+    }
   }
 
   @override
@@ -73,7 +78,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _createMarkerIcons() async {
     double webSize = 24;
-    double mobileSize = 48; // Ukuran untuk mobile, bisa disesuaikan
+    double mobileSize = 32;
 
     bool isMobile = Theme.of(context).platform == TargetPlatform.android ||
         Theme.of(context).platform == TargetPlatform.iOS;
@@ -171,6 +176,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 statusChanged = true;
                 _addLogEntry("Panic Button ${device.displayId} activated");
                 _showDeviceActivationAlert(device);
+                if (isMobilePlatform) {
+                  _notificationService.showNotification(
+                      'Panic Button Activated',
+                      'Device ${device.displayId} is active at ${device.location.latitude}, ${device.location.longitude}'); // Perubahan di sini
+                }
                 _alarmService.startPeriodicAlarm(const Duration(seconds: 15),
                     () => _devices.values.any((d) => d.isActive));
               }
@@ -191,7 +201,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _addLogEntry(String entry) async {
     await _logService.addLogEntry(entry);
-    await _loadLogEntries(); // Reload log entries after adding a new one
+    await _loadLogEntries();
   }
 
   void _resetAllDevices() {
@@ -330,7 +340,11 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      drawer: LogComponent(logEntries: _logEntries, logService: _logService),
+      drawer: LogComponent(
+        logEntries: _logEntries,
+        logService: _logService,
+        authService: _authService,
+      ),
       body: MapComponent(
         devices: _devices,
         onMapCreated: _onMapCreated,

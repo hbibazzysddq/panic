@@ -15,7 +15,7 @@ class MarkerService {
 
     // Gambar lingkaran dalam berwarna putih
     final centerPaint = Paint()..color = Colors.white;
-    canvas.drawCircle(Offset(size / 2, size / 2), size / 3, centerPaint);
+    canvas.drawCircle(Offset(size / 2, size / 2), size / 4, centerPaint);
 
     // Gambar lingkaran kecil di tengah dengan warna asli
     canvas.drawCircle(Offset(size / 2, size / 2), size / 6, paint);

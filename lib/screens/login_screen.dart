@@ -1,19 +1,21 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:panic_button/service/auth_service.dart';
 
-class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key});
 
   @override
-  State<LoginPage> createState() => _LoginPageState();
+  State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginPageState extends State<LoginPage> {
+class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
   bool _obscureText = true;
+  final AuthService _authService = AuthService();
 
   void _togglePasswordVisibility() {
     setState(() {
@@ -28,19 +30,17 @@ class _LoginPageState extends State<LoginPage> {
       });
 
       try {
-        print("Attempting login with email: ${_emailController.text}");
-        UserCredential userCredential =
-            await FirebaseAuth.instance.signInWithEmailAndPassword(
-          email: _emailController.text.trim(),
-          password: _passwordController.text,
+        bool success = await _authService.login(
+          _emailController.text.trim(),
+          _passwordController.text,
         );
-        print("Login successful. User ID: ${userCredential.user?.uid}");
-        Navigator.of(context).pushReplacementNamed('/home');
-      } on FirebaseAuthException catch (e) {
-        print("Firebase Auth Error: ${e.code} - ${e.message}");
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message ?? 'An error occurred')),
-        );
+        if (success) {
+          Navigator.of(context).pushReplacementNamed('/home');
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Login failed. Please try again.')),
+          );
+        }
       } catch (e) {
         print("Unexpected error: $e");
         ScaffoldMessenger.of(context).showSnackBar(
