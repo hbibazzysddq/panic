@@ -1,9 +1,15 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:isolate';
+import 'dart:ui';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:workmanager/workmanager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:flutter_background_service_android/flutter_background_service_android.dart';
 
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
@@ -16,21 +22,36 @@ class NotificationService {
   Future<void> initialize() async {
     const AndroidInitializationSettings initializationSettingsAndroid =
         AndroidInitializationSettings('@drawable/sanur');
-    final InitializationSettings initializationSettings =
+    const InitializationSettings initializationSettings =
         InitializationSettings(android: initializationSettingsAndroid);
     await flutterLocalNotificationsPlugin.initialize(initializationSettings);
 
     await _ensureDeviceIdentifierExists();
 
-    Workmanager().initialize(callbackDispatcher);
-    Workmanager().registerPeriodicTask(
-      "fetch-data-task",
-      "fetchDataTask",
-      frequency: Duration(minutes: 15),
-      constraints: Constraints(
-        networkType: NetworkType.connected,
+    // Hanya jalankan background service di platform mobile
+    if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
+      await initializeService();
+    }
+  }
+
+  Future<void> initializeService() async {
+    final service = FlutterBackgroundService();
+
+    await service.configure(
+      androidConfiguration: AndroidConfiguration(
+        onStart: onStart,
+        autoStart: true,
+        isForegroundMode: true,
+        foregroundServiceNotificationId: 888,
+      ),
+      iosConfiguration: IosConfiguration(
+        autoStart: true,
+        onForeground: onStart,
+        onBackground: onIosBackground,
       ),
     );
+
+    service.startService();
   }
 
   Future<void> _ensureDeviceIdentifierExists() async {
@@ -72,7 +93,6 @@ class NotificationService {
       final response = await http.get(url);
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        // Proses data dan tampilkan notifikasi jika diperlukan
         if (data['alert'] == true) {
           await showNotification(
             'Panic Button Alert',
@@ -87,10 +107,52 @@ class NotificationService {
 }
 
 @pragma('vm:entry-point')
-void callbackDispatcher() {
-  Workmanager().executeTask((task, inputData) async {
-    final notificationService = NotificationService();
-    await notificationService.fetchDataAndNotify();
-    return Future.value(true);
+void onStart(ServiceInstance service) async {
+  DartPluginRegistrant.ensureInitialized();
+
+  final notificationService = NotificationService();
+
+  if (service is AndroidServiceInstance) {
+    service.on('setAsForeground').listen((event) {
+      service.setAsForegroundService();
+    });
+
+    service.on('setAsBackground').listen((event) {
+      service.setAsBackgroundService();
+    });
+  }
+
+  service.on('stopService').listen((event) {
+    service.stopSelf();
   });
+
+  // Menjalankan fetchDataAndNotify setiap 1 menit
+  Timer.periodic(const Duration(minutes: 1), (timer) async {
+    if (service is AndroidServiceInstance) {
+      if (await service.isForegroundService()) {
+        service.setForegroundNotificationInfo(
+          title: "Panic Button Service",
+          content: "Running in background",
+        );
+      }
+    }
+
+    await notificationService.fetchDataAndNotify();
+
+    // Kirim data ke UI jika diperlukan
+    service.invoke(
+      'update',
+      {
+        "current_date": DateTime.now().toIso8601String(),
+      },
+    );
+  });
+}
+
+@pragma('vm:entry-point')
+Future<bool> onIosBackground(ServiceInstance service) async {
+  WidgetsFlutterBinding.ensureInitialized();
+  DartPluginRegistrant.ensureInitialized();
+
+  return true;
 }

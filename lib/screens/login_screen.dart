@@ -1,4 +1,3 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:panic_button/service/auth_service.dart';
 
@@ -35,16 +34,20 @@ class _LoginScreenState extends State<LoginScreen> {
           _passwordController.text,
         );
         if (success) {
+          // ignore: use_build_context_synchronously
           Navigator.of(context).pushReplacementNamed('/home');
         } else {
+          // ignore: use_build_context_synchronously
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Login failed. Please try again.')),
+            const SnackBar(content: Text('Login failed. Please try again.')),
           );
         }
       } catch (e) {
+        // ignore: avoid_print
         print("Unexpected error: $e");
+        // ignore: use_build_context_synchronously
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('An unexpected error occurred')),
+          const SnackBar(content: Text('An unexpected error occurred')),
         );
       } finally {
         setState(() {
@@ -216,13 +219,13 @@ class _LoginScreenState extends State<LoginScreen> {
             ElevatedButton(
               onPressed: _isLoading ? null : _login,
               style: ElevatedButton.styleFrom(
-                backgroundColor: Color.fromARGB(255, 18, 106, 178),
+                backgroundColor: const Color.fromARGB(255, 18, 106, 178),
                 padding: const EdgeInsets.symmetric(vertical: 15),
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(30)),
               ),
               child: _isLoading
-                  ? CircularProgressIndicator(color: Colors.white)
+                  ? const CircularProgressIndicator(color: Colors.white)
                   : const Text("Login",
                       style: TextStyle(color: Colors.white, fontSize: 16)),
             ),

@@ -77,7 +77,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _createMarkerIcons() async {
-    double webSize = 24;
+    double webSize = 14;
     double mobileSize = 32;
 
     bool isMobile = Theme.of(context).platform == TargetPlatform.android ||
