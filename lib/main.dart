@@ -11,7 +11,11 @@ void main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-  await NotificationService().initialize();
+
+  // Inisialisasi dan mulai background service segera
+  final notificationService = NotificationService();
+  await notificationService.initialize();
+  await notificationService.initializeService();
 
   runApp(MyApp());
 }

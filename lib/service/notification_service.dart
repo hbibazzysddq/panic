@@ -20,38 +20,101 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
 
   Future<void> initialize() async {
-    const AndroidInitializationSettings initializationSettingsAndroid =
-        AndroidInitializationSettings('@drawable/sanur');
-    const InitializationSettings initializationSettings =
-        InitializationSettings(android: initializationSettingsAndroid);
-    await flutterLocalNotificationsPlugin.initialize(initializationSettings);
+    if (kIsWeb) {
+      print(
+          'Notification Service: Web platform detected, skipping initialization');
+      return;
+    }
 
-    await _ensureDeviceIdentifierExists();
+    if (Platform.isAndroid || Platform.isIOS) {
+      // Create notification channel for Android
+      const AndroidNotificationChannel channel = AndroidNotificationChannel(
+        'panic_button_channel',
+        'Panic Button Notifications',
+        importance: Importance.max,
+        enableVibration: true,
+        playSound: true,
+        showBadge: true,
+        enableLights: true,
+      );
 
-    // Hanya jalankan background service di platform mobile
-    if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
+      // Request permissions for iOS
+      if (Platform.isIOS) {
+        await flutterLocalNotificationsPlugin
+            .resolvePlatformSpecificImplementation<
+                IOSFlutterLocalNotificationsPlugin>()
+            ?.requestPermissions(
+              alert: true,
+              badge: true,
+              sound: true,
+            );
+      }
+
+      // Initialize notification settings
+      const AndroidInitializationSettings initializationSettingsAndroid =
+          AndroidInitializationSettings('@drawable/sanur');
+
+      final DarwinInitializationSettings initializationSettingsIOS =
+          DarwinInitializationSettings(
+        requestSoundPermission: true,
+        requestBadgePermission: true,
+        requestAlertPermission: true,
+        onDidReceiveLocalNotification: (id, title, body, payload) async {
+          // Handle iOS notification when app is in foreground
+        },
+      );
+
+      final InitializationSettings initializationSettings =
+          InitializationSettings(
+        android: initializationSettingsAndroid,
+        iOS: initializationSettingsIOS,
+      );
+
+      await flutterLocalNotificationsPlugin.initialize(
+        initializationSettings,
+        onDidReceiveNotificationResponse: (NotificationResponse response) {
+          // Handle notification tap
+          print('Notification tapped: ${response.payload}');
+        },
+      );
+
+      // Create the notification channel for Android
+      await flutterLocalNotificationsPlugin
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()
+          ?.createNotificationChannel(channel);
+
+      await _ensureDeviceIdentifierExists();
+
+      // Initialize background service
       await initializeService();
     }
   }
 
   Future<void> initializeService() async {
-    final service = FlutterBackgroundService();
+    if (kIsWeb) return;
 
-    await service.configure(
-      androidConfiguration: AndroidConfiguration(
-        onStart: onStart,
-        autoStart: true,
-        isForegroundMode: true,
-        foregroundServiceNotificationId: 888,
-      ),
-      iosConfiguration: IosConfiguration(
-        autoStart: true,
-        onForeground: onStart,
-        onBackground: onIosBackground,
-      ),
-    );
+    if (Platform.isAndroid || Platform.isIOS) {
+      final service = FlutterBackgroundService();
 
-    service.startService();
+      await service.configure(
+        androidConfiguration: AndroidConfiguration(
+          onStart: onStart,
+          autoStart: true,
+          isForegroundMode: true,
+          foregroundServiceNotificationId: 888,
+          initialNotificationTitle: 'Panic Button Service',
+          initialNotificationContent: 'Monitoring panic buttons',
+        ),
+        iosConfiguration: IosConfiguration(
+          autoStart: true,
+          onForeground: onStart,
+          onBackground: onIosBackground,
+        ),
+      );
+
+      await service.startService();
+    }
   }
 
   Future<void> _ensureDeviceIdentifierExists() async {
@@ -67,25 +130,59 @@ class NotificationService {
     return prefs.getString('device_identifier');
   }
 
-  Future<void> showNotification(String title, String body) async {
-    const AndroidNotificationDetails androidPlatformChannelSpecifics =
-        AndroidNotificationDetails(
-      'panic_button_channel',
-      'Panic Button Notifications',
-      importance: Importance.max,
-      priority: Priority.high,
-    );
-    const NotificationDetails platformChannelSpecifics =
-        NotificationDetails(android: androidPlatformChannelSpecifics);
-    await flutterLocalNotificationsPlugin.show(
-      0,
-      title,
-      body,
-      platformChannelSpecifics,
-    );
+  Future<void> showNotification(String title, String body,
+      {String? payload, int? notificationId}) async {
+    if (kIsWeb) return;
+
+    if (Platform.isAndroid || Platform.isIOS) {
+      const AndroidNotificationDetails androidPlatformChannelSpecifics =
+          AndroidNotificationDetails(
+        'panic_button_channel',
+        'Panic Button Notifications',
+        importance: Importance.max,
+        priority: Priority.high,
+        showWhen: true,
+        enableVibration: true,
+        playSound: true,
+        icon: '@drawable/sanur',
+        largeIcon: DrawableResourceAndroidBitmap('@drawable/sanur'),
+      );
+
+      final DarwinNotificationDetails iOSPlatformChannelSpecifics =
+          DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      );
+
+      final NotificationDetails platformChannelSpecifics = NotificationDetails(
+        android: androidPlatformChannelSpecifics,
+        iOS: iOSPlatformChannelSpecifics,
+      );
+
+      await flutterLocalNotificationsPlugin.show(
+        notificationId ?? 0,
+        title,
+        body,
+        platformChannelSpecifics,
+        payload: payload,
+      );
+    }
+  }
+
+  Future<void> cancelAllNotifications() async {
+    if (kIsWeb) return;
+    await flutterLocalNotificationsPlugin.cancelAll();
+  }
+
+  Future<void> cancelNotification(int id) async {
+    if (kIsWeb) return;
+    await flutterLocalNotificationsPlugin.cancel(id);
   }
 
   Future<void> fetchDataAndNotify() async {
+    if (kIsWeb) return;
+
     final deviceId = await _getDeviceIdentifier();
     final url =
         Uri.parse('http://202.157.187.108:3000/data?device_id=$deviceId');
@@ -97,6 +194,7 @@ class NotificationService {
           await showNotification(
             'Panic Button Alert',
             'A panic button has been activated!',
+            notificationId: DateTime.now().millisecond,
           );
         }
       }
@@ -126,26 +224,31 @@ void onStart(ServiceInstance service) async {
     service.stopSelf();
   });
 
-  // Menjalankan fetchDataAndNotify setiap 1 menit
+  // Periodic task every 1 minute
   Timer.periodic(const Duration(minutes: 1), (timer) async {
     if (service is AndroidServiceInstance) {
       if (await service.isForegroundService()) {
+        // Update foreground notification
         service.setForegroundNotificationInfo(
-          title: "Panic Button Service",
-          content: "Running in background",
+          title: "Panic Button Service Active",
+          content: "Last check: ${DateTime.now().toString()}",
         );
       }
     }
 
-    await notificationService.fetchDataAndNotify();
-
-    // Kirim data ke UI jika diperlukan
-    service.invoke(
-      'update',
-      {
-        "current_date": DateTime.now().toIso8601String(),
-      },
-    );
+    try {
+      await notificationService.fetchDataAndNotify();
+      // Send data to UI if needed
+      service.invoke(
+        'update',
+        {
+          "current_date": DateTime.now().toIso8601String(),
+          "last_check": DateTime.now().toString(),
+        },
+      );
+    } catch (e) {
+      print('Background task error: $e');
+    }
   });
 }
 
