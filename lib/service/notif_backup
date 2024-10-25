@@ -202,27 +202,23 @@ class NotificationService {
       ).timeout(const Duration(seconds: 3));
 
       if (response.statusCode == 200) {
-        // Print response untuk debugging
-        print('Response body: ${response.body}');
+        print('Response received at: ${DateTime.now().toIso8601String()}');
 
         final dynamic decodedData = json.decode(response.body);
         List<dynamic> devices = [];
 
         if (decodedData is Map<String, dynamic>) {
-          // Jika data dalam bentuk object
-          if (decodedData.containsKey('data')) {
-            final dynamic data = decodedData['data'];
-            devices = data is List ? data : [data];
-          } else {
-            devices = [decodedData];
-          }
+          // Single device data
+          devices = [decodedData];
         } else if (decodedData is List) {
+          // Multiple devices data
           devices = decodedData;
         }
 
         if (devices.isNotEmpty) {
           print('Processing ${devices.length} devices');
-          await _processDevicesData(devices, lastCheckTime);
+          await _processDevicesData(
+              devices, lastCheckTime); // Mengirim lastCheckTime
           await prefs.setString(
               'last_check_time', DateTime.now().toIso8601String());
         } else {
@@ -231,9 +227,6 @@ class NotificationService {
       } else {
         print('Server returned status code: ${response.statusCode}');
       }
-    } on FormatException catch (e) {
-      print('JSON parsing error: $e');
-      print('Response was: ${e.source}');
     } catch (e) {
       print('Error fetching data: $e');
     }
@@ -242,7 +235,6 @@ class NotificationService {
   // Memproses data perangkat
   Future<void> _processDevicesData(
       List<dynamic> devices, String? lastCheckTime) async {
-    // Jika tidak ada lastCheckTime, gunakan waktu 24 jam yang lalu sebagai default
     final DateTime checkTime = lastCheckTime != null
         ? DateTime.parse(lastCheckTime)
         : DateTime.now().subtract(const Duration(hours: 24));
@@ -252,7 +244,7 @@ class NotificationService {
     for (var device in devices) {
       try {
         if (device is Map<String, dynamic>) {
-          await _processDeviceAlert(device, checkTime);
+          await _processDeviceAlert(device);
         } else {
           print('Invalid device data format: $device');
         }
@@ -264,41 +256,34 @@ class NotificationService {
   }
 
   // Memproses alert perangkat
-  Future<void> _processDeviceAlert(
-      Map<String, dynamic> device, DateTime checkTime) async {
+  Future<void> _processDeviceAlert(Map<String, dynamic> device) async {
     try {
-      // Validasi dasar
+      // Validasi dan ekstraksi end_device_ids
       final endDeviceIds = device['end_device_ids'];
       if (endDeviceIds == null || endDeviceIds is! Map<String, dynamic>) {
         print('Invalid end_device_ids format');
         return;
       }
 
+      // Ekstrak informasi device
       final String? deviceId = endDeviceIds['device_id'];
+      final String? devEui = endDeviceIds['dev_eui'];
+      final applicationIds = endDeviceIds['application_ids'];
+      final String? applicationId = applicationIds?['application_id'];
+
       if (deviceId == null) {
         print('Device ID is null');
         return;
       }
 
-      // Ekstrak nomor device dari deviceId (misal: dari 'id-17' ambil '17')
-      final deviceNumber = deviceId.split('-').last;
-
-      // Validasi waktu
+      // Validasi received_at
       final String? receivedAt = device['received_at'];
       if (receivedAt == null) {
         print('Missing received_at timestamp');
         return;
       }
 
-      final receivedTime = DateTime.parse(receivedAt);
-      final now = DateTime.now();
-
-      if (now.difference(receivedTime).inMinutes > 5) {
-        print('Skipping old data for device $deviceId');
-        return;
-      }
-
-      // Validasi payload
+      // Parse dan validasi uplink_message
       final uplinkMessage = device['uplink_message'];
       if (uplinkMessage == null || uplinkMessage is! Map<String, dynamic>) {
         print('Invalid uplink_message');
@@ -317,47 +302,64 @@ class NotificationService {
         return;
       }
 
-      // Generate identifier untuk tracking
-      final currentAlert =
-          '$deviceId:$alertValue:${receivedTime.millisecondsSinceEpoch}';
+      // Generate alert identifier
+      final currentAlert = '$deviceId:$alertValue:$receivedAt';
 
-      // Cek duplikasi
+      // Check if this is a new alert
       if (_lastDeviceAlerts[deviceId] != currentAlert) {
-        // Ambil koordinat dari data
-        String coordinates = '';
+        print('New alert detected for device $deviceId: $alertValue');
+
+        // Prepare notification content
+        var notifTitle = 'PANIC BUTTON $deviceId';
+        var notifBody = 'Alert detected from $deviceId';
+
+        if (devEui != null) {
+          notifBody += '\nEUI: $devEui';
+        }
+
+        if (applicationId != null) {
+          notifBody += '\nApplication: $applicationId';
+        }
+
+        notifBody += '\nTime: $receivedAt';
+
+        // Add gateway information if available
         final rxMetadata = uplinkMessage['rx_metadata'];
         if (rxMetadata is List && rxMetadata.isNotEmpty) {
-          final firstMetadata = rxMetadata[0];
-          if (firstMetadata is Map<String, dynamic>) {
-            final double? latitude = firstMetadata['location']?['latitude'];
-            final double? longitude = firstMetadata['location']?['longitude'];
-            if (latitude != null && longitude != null) {
-              coordinates = 'at $latitude, $longitude';
+          final gateway = rxMetadata[0];
+          if (gateway is Map<String, dynamic> &&
+              gateway['gateway_ids'] is Map<String, dynamic>) {
+            final gatewayId = gateway['gateway_ids']['gateway_id'];
+            if (gatewayId != null) {
+              notifBody += '\nGateway: $gatewayId';
             }
           }
         }
 
-        // Kirim notifikasi dalam format yang diinginkan
+        // Show notification
         await showNotification(
-          'Panic Button Activated',
-          'Device $deviceNumber is active $coordinates',
+          notifTitle,
+          notifBody,
           payload: json.encode({
             'deviceId': deviceId,
             'alert': alertValue,
-            'timestamp': receivedAt
+            'timestamp': receivedAt,
+            'eui': devEui,
+            'applicationId': applicationId
           }),
         );
 
-        // Update tracking
+        // Update last alert
         _lastDeviceAlerts[deviceId] = currentAlert;
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('last_alert_$deviceId', currentAlert);
-        await prefs.setString(
-            'last_notification_time_$deviceId', now.toIso8601String());
+      } else {
+        print('Alert already processed for device $deviceId');
       }
     } catch (e, stackTrace) {
       print('Error processing device alert: $e');
       print('Stack trace: $stackTrace');
+      print('Device data: $device');
     }
   }
 
@@ -415,26 +417,9 @@ class NotificationService {
     }
   }
 
-  Future<void> clearAllNotificationData() async {
-    final prefs = await SharedPreferences.getInstance();
-    final keys = prefs.getKeys().toList();
-
-    for (final key in keys) {
-      if (key.startsWith('last_alert_') ||
-          key.startsWith('last_notification_time_')) {
-        await prefs.remove(key);
-      }
-    }
-    _lastDeviceAlerts.clear();
-    print('All notification data cleared');
-  }
-
   // Inisialisasi dengan pemeriksaan berkala
   Future<void> initializeWithPeriodicCheck() async {
     await initialize();
-
-    // Bersihkan data lama saat startup
-    await clearAllNotificationData();
 
     Timer.periodic(const Duration(seconds: 1), (timer) async {
       await fetchAndCheckData();
