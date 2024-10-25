@@ -17,11 +17,11 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
       FlutterLocalNotificationsPlugin();
 
-  // Menyimpan data terakhir untuk pemeriksaan
   final Map<String, String> _lastDeviceAlerts = {};
+  final Map<String, DateTime> _lastNotificationTimes = {};
+  static const Duration _minimumNotificationInterval = Duration(seconds: 5);
   bool _isInitialized = false;
 
-  // Inisialisasi dasar
   Future<void> initialize() async {
     if (_isInitialized || kIsWeb) return;
 
@@ -88,7 +88,6 @@ class NotificationService {
     }
   }
 
-  // Handle tap notifikasi
   void handleNotificationTap(String payload) {
     try {
       final Map<String, dynamic> data = json.decode(payload);
@@ -99,7 +98,6 @@ class NotificationService {
     }
   }
 
-  // Inisialisasi service background
   Future<void> _initializeService() async {
     final service = FlutterBackgroundService();
 
@@ -128,7 +126,6 @@ class NotificationService {
     }
   }
 
-  // Memastikan device identifier ada
   Future<void> _ensureDeviceIdentifierExists() async {
     final prefs = await SharedPreferences.getInstance();
     if (!prefs.containsKey('device_identifier')) {
@@ -138,7 +135,6 @@ class NotificationService {
     }
   }
 
-  // Menampilkan notifikasi
   Future<void> showNotification(String title, String body,
       {String? payload}) async {
     if (kIsWeb) return;
@@ -185,14 +181,10 @@ class NotificationService {
     }
   }
 
-  // Mengambil dan memeriksa data
   Future<void> fetchAndCheckData() async {
     if (kIsWeb) return;
 
     final url = Uri.parse('http://202.157.187.108:3000/data');
-    final prefs = await SharedPreferences.getInstance();
-    final lastCheckTime = prefs.getString('last_check_time');
-
     try {
       final response = await http.get(
         url,
@@ -202,14 +194,10 @@ class NotificationService {
       ).timeout(const Duration(seconds: 3));
 
       if (response.statusCode == 200) {
-        // Print response untuk debugging
-        print('Response body: ${response.body}');
-
         final dynamic decodedData = json.decode(response.body);
         List<dynamic> devices = [];
 
         if (decodedData is Map<String, dynamic>) {
-          // Jika data dalam bentuk object
           if (decodedData.containsKey('data')) {
             final dynamic data = decodedData['data'];
             devices = data is List ? data : [data];
@@ -222,52 +210,34 @@ class NotificationService {
 
         if (devices.isNotEmpty) {
           print('Processing ${devices.length} devices');
-          await _processDevicesData(devices, lastCheckTime);
-          await prefs.setString(
-              'last_check_time', DateTime.now().toIso8601String());
+          await _processDevicesData(devices);
         } else {
           print('No devices to process');
         }
       } else {
         print('Server returned status code: ${response.statusCode}');
       }
-    } on FormatException catch (e) {
-      print('JSON parsing error: $e');
-      print('Response was: ${e.source}');
     } catch (e) {
       print('Error fetching data: $e');
     }
   }
 
-  // Memproses data perangkat
-  Future<void> _processDevicesData(
-      List<dynamic> devices, String? lastCheckTime) async {
-    // Jika tidak ada lastCheckTime, gunakan waktu 24 jam yang lalu sebagai default
-    final DateTime checkTime = lastCheckTime != null
-        ? DateTime.parse(lastCheckTime)
-        : DateTime.now().subtract(const Duration(hours: 24));
-
-    print('Processing devices with checkTime: $checkTime');
-
+  Future<void> _processDevicesData(List<dynamic> devices) async {
     for (var device in devices) {
       try {
         if (device is Map<String, dynamic>) {
-          await _processDeviceAlert(device, checkTime);
+          await _processDeviceAlert(device);
         } else {
           print('Invalid device data format: $device');
         }
       } catch (e) {
         print('Error processing device: $e');
-        print('Device data: $device');
       }
     }
   }
 
-  // Memproses alert perangkat
-  Future<void> _processDeviceAlert(
-      Map<String, dynamic> device, DateTime checkTime) async {
+  Future<void> _processDeviceAlert(Map<String, dynamic> device) async {
     try {
-      // Validasi dasar
       final endDeviceIds = device['end_device_ids'];
       if (endDeviceIds == null || endDeviceIds is! Map<String, dynamic>) {
         print('Invalid end_device_ids format');
@@ -280,10 +250,7 @@ class NotificationService {
         return;
       }
 
-      // Ekstrak nomor device dari deviceId (misal: dari 'id-17' ambil '17')
       final deviceNumber = deviceId.split('-').last;
-
-      // Validasi waktu
       final String? receivedAt = device['received_at'];
       if (receivedAt == null) {
         print('Missing received_at timestamp');
@@ -293,12 +260,22 @@ class NotificationService {
       final receivedTime = DateTime.parse(receivedAt);
       final now = DateTime.now();
 
+      // Throttle check
+      if (_lastNotificationTimes.containsKey(deviceId)) {
+        final lastNotificationTime = _lastNotificationTimes[deviceId]!;
+        if (now.difference(lastNotificationTime) <
+            _minimumNotificationInterval) {
+          print('Throttling notification for device $deviceId');
+          return;
+        }
+      }
+
+      // Skip old data
       if (now.difference(receivedTime).inMinutes > 5) {
         print('Skipping old data for device $deviceId');
         return;
       }
 
-      // Validasi payload
       final uplinkMessage = device['uplink_message'];
       if (uplinkMessage == null || uplinkMessage is! Map<String, dynamic>) {
         print('Invalid uplink_message');
@@ -317,13 +294,12 @@ class NotificationService {
         return;
       }
 
-      // Generate identifier untuk tracking
+      // Generate unique alert identifier with more precise timing
       final currentAlert =
-          '$deviceId:$alertValue:${receivedTime.millisecondsSinceEpoch}';
+          '$deviceId:$alertValue:${now.microsecondsSinceEpoch}';
 
-      // Cek duplikasi
+      // Duplicate check
       if (_lastDeviceAlerts[deviceId] != currentAlert) {
-        // Ambil koordinat dari data
         String coordinates = '';
         final rxMetadata = uplinkMessage['rx_metadata'];
         if (rxMetadata is List && rxMetadata.isNotEmpty) {
@@ -337,23 +313,58 @@ class NotificationService {
           }
         }
 
-        // Kirim notifikasi dalam format yang diinginkan
-        await showNotification(
-          'Panic Button Activated',
-          'Device $deviceNumber is active $coordinates',
-          payload: json.encode({
-            'deviceId': deviceId,
-            'alert': alertValue,
-            'timestamp': receivedAt
-          }),
-        );
+        Future<DateTime?> _getLastDataTime(String deviceId) async {
+          final prefs = await SharedPreferences.getInstance();
+          final lastTimeStr = prefs.getString('last_data_time_$deviceId');
+          return lastTimeStr != null ? DateTime.parse(lastTimeStr) : null;
+        }
 
-        // Update tracking
+        // Show notification
+        Future<void> showNotification(String title, String body,
+            {required int notificationId, String? payload}) async {
+          if (kIsWeb) return;
+
+          const AndroidNotificationDetails androidPlatformChannelSpecifics =
+              AndroidNotificationDetails(
+            'panic_button_channel',
+            'Panic Button Notifications',
+            channelDescription: 'Notifications for Panic Button alerts',
+            importance: Importance.max,
+            priority: Priority.high,
+            showWhen: true,
+            enableVibration: true,
+            playSound: true,
+            styleInformation: BigTextStyleInformation(''),
+            fullScreenIntent: true,
+          );
+
+          const NotificationDetails platformChannelSpecifics =
+              NotificationDetails(android: androidPlatformChannelSpecifics);
+
+          try {
+            await flutterLocalNotificationsPlugin.show(
+              notificationId, // Menggunakan ID yang diberikan
+              title,
+              body,
+              platformChannelSpecifics,
+              payload: payload,
+            );
+            print('Notification shown successfully with ID: $notificationId');
+          } catch (e) {
+            print('Error showing notification: $e');
+          }
+        }
+
+        // Update tracking data
         _lastDeviceAlerts[deviceId] = currentAlert;
+        _lastNotificationTimes[deviceId] = now;
+
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('last_alert_$deviceId', currentAlert);
         await prefs.setString(
             'last_notification_time_$deviceId', now.toIso8601String());
+      } else {
+        print('Duplicate alert detected for device $deviceId');
       }
     } catch (e, stackTrace) {
       print('Error processing device alert: $e');
@@ -361,55 +372,41 @@ class NotificationService {
     }
   }
 
-  // Mengirim notifikasi perangkat
-  Future<void> _sendDeviceNotification(
-      String deviceId,
-      Map<String, dynamic> deviceEndpointId,
-      Map<String, dynamic> device) async {
-    var notifTitle = 'PANIC BUTTON $deviceId';
-    var notifBody = 'Alert detected from $deviceId';
-
-    if (deviceEndpointId['dev_eui'] != null) {
-      notifBody += '\nEUI: ${deviceEndpointId['dev_eui']}';
-    }
-
-    if (device['received_at'] != null) {
-      notifBody += '\nTime: ${device['received_at']}';
-    }
-
-    await showNotification(
-      notifTitle,
-      notifBody,
-      payload: json.encode({
-        'deviceId': deviceId,
-        'alert': device['uplink_message']['decoded_payload']['device_alert'],
-        'timestamp': device['received_at'],
-        'eui': deviceEndpointId['dev_eui']
-      }),
-    );
-
-    print('Alert notification sent for device $deviceId');
-  }
-
-  // Membersihkan data lama
   Future<void> cleanOldData() async {
     final prefs = await SharedPreferences.getInstance();
     final now = DateTime.now();
 
     final keys = prefs.getKeys();
     for (String key in keys) {
-      if (key.startsWith('last_alert_')) {
-        final String? alertData = prefs.getString(key);
-        if (alertData != null) {
-          final parts = alertData.split(':');
-          if (parts.length >= 3) {
-            final alertTime = DateTime.parse(parts[2]);
-            // Hapus data yang lebih lama dari 24 jam
-            if (now.difference(alertTime).inHours > 24) {
+      if (key.startsWith('last_alert_') ||
+          key.startsWith('last_notification_time_')) {
+        try {
+          final String? value = prefs.getString(key);
+          if (value != null) {
+            DateTime timestamp;
+            if (key.startsWith('last_alert_')) {
+              final parts = value.split(':');
+              if (parts.length >= 3) {
+                timestamp =
+                    DateTime.fromMicrosecondsSinceEpoch(int.parse(parts[2]));
+              } else {
+                continue;
+              }
+            } else {
+              timestamp = DateTime.parse(value);
+            }
+
+            if (now.difference(timestamp).inHours > 24) {
               await prefs.remove(key);
-              _lastDeviceAlerts.remove(key.replaceFirst('last_alert_', ''));
+              if (key.startsWith('last_alert_')) {
+                final deviceId = key.replaceFirst('last_alert_', '');
+                _lastDeviceAlerts.remove(deviceId);
+                _lastNotificationTimes.remove(deviceId);
+              }
             }
           }
+        } catch (e) {
+          print('Error cleaning old data for key $key: $e');
         }
       }
     }
@@ -426,14 +423,12 @@ class NotificationService {
       }
     }
     _lastDeviceAlerts.clear();
+    _lastNotificationTimes.clear();
     print('All notification data cleared');
   }
 
-  // Inisialisasi dengan pemeriksaan berkala
   Future<void> initializeWithPeriodicCheck() async {
     await initialize();
-
-    // Bersihkan data lama saat startup
     await clearAllNotificationData();
 
     Timer.periodic(const Duration(seconds: 1), (timer) async {
@@ -445,14 +440,12 @@ class NotificationService {
     });
   }
 
-  // Dispose service
   Future<void> dispose() async {
     final service = FlutterBackgroundService();
     service.invoke('stopService');
   }
 }
 
-// Entry point untuk background service Android
 @pragma('vm:entry-point')
 void onStart(ServiceInstance service) async {
   DartPluginRegistrant.ensureInitialized();
@@ -473,7 +466,6 @@ void onStart(ServiceInstance service) async {
 
   void startTimer() {
     timer?.cancel();
-
     timer = Timer.periodic(const Duration(seconds: 1), (timer) async {
       if (service is AndroidServiceInstance) {
         if (await service.isForegroundService()) {
