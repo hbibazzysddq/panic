@@ -1,14 +1,15 @@
+// main.dart
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:panic_button/screens/home_screen.dart';
 import 'package:panic_button/screens/login_screen.dart';
 import 'package:panic_button/service/auth_service.dart';
-import 'package:panic_button/service/permision_service.dart';
 import 'package:panic_button/service/background_service.dart';
 import 'package:panic_button/service/notification_service.dart';
+import 'package:panic_button/service/permision_service.dart';
 import 'firebase_options.dart';
 
-@pragma('vm:entry-point')
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -17,12 +18,14 @@ void main() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
 
-    final notificationService = NotificationService();
-    await notificationService.initialize();
+    // Initialize mobile-specific services
+    if (!kIsWeb) {
+      final notificationService = NotificationService();
+      await notificationService.initialize();
 
-    final backgroundService = BackgroundService();
-    await backgroundService
-        .initialize(); // Menginisialisasi layanan latar belakang
+      final backgroundService = BackgroundService();
+      await backgroundService.initialize();
+    }
 
     runApp(MyApp());
   } catch (e) {
@@ -55,12 +58,15 @@ class _MyAppState extends State<MyApp> {
   @override
   void initState() {
     super.initState();
-    _checkInitialPermissions();
+    if (!kIsWeb) {
+      _checkInitialPermissions();
+    } else {
+      _permissionsChecked = true; // Skip permissions for web
+    }
   }
 
   Future<void> _checkInitialPermissions() async {
-    await Future.delayed(Duration.zero);
-    if (mounted) {
+    if (!kIsWeb && mounted) {
       await _permissionService.requestPermissions(context);
       setState(() {
         _permissionsChecked = true;
@@ -79,7 +85,8 @@ class _MyAppState extends State<MyApp> {
       home: FutureBuilder<bool>(
         future: widget._authService.checkLoginStatus(),
         builder: (context, snapshot) {
-          if (!_permissionsChecked) {
+          // Only show loading for permissions on mobile
+          if (!kIsWeb && !_permissionsChecked) {
             return const Scaffold(
               body: Center(
                 child: CircularProgressIndicator(),
