@@ -14,7 +14,6 @@ import '../components/log_component.dart';
 import '../components/device_info_bottom_sheet.dart';
 import '../service/marker_service.dart';
 import 'package:panic_button/utils/platform_check.dart';
-import 'package:panic_button/service/notification_service.dart'; // Tambahan baru
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -42,8 +41,6 @@ class _HomeScreenState extends State<HomeScreen> {
   final DataService _dataService = DataService();
   final LogService _logService = LogService();
   final MarkerService _markerService = MarkerService();
-  final NotificationService _notificationService =
-      NotificationService(); // Tambahan baru
   final AuthService _authService = AuthService();
 
   @override
@@ -53,9 +50,6 @@ class _HomeScreenState extends State<HomeScreen> {
     _startDataFetchTimer();
     _startPeriodicDeviceCheck();
     _loadLogEntries();
-    if (isMobilePlatform) {
-      _notificationService.initialize(); // Perubahan di sini
-    }
   }
 
   @override
@@ -176,11 +170,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 statusChanged = true;
                 _addLogEntry("Panic Button ${device.displayId} activated");
                 _showDeviceActivationAlert(device);
-                if (isMobilePlatform) {
-                  _notificationService.showNotification(
-                      'Panic Button Activated',
-                      'Device ${device.displayId} is active at ${device.location.latitude}, ${device.location.longitude}'); // Perubahan di sini
-                }
+
                 _alarmService.startPeriodicAlarm(const Duration(seconds: 15),
                     () => _devices.values.any((d) => d.isActive));
               }

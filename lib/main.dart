@@ -5,8 +5,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:panic_button/screens/home_screen.dart';
 import 'package:panic_button/screens/login_screen.dart';
 import 'package:panic_button/service/auth_service.dart';
-import 'package:panic_button/service/background_service.dart';
-import 'package:panic_button/service/notification_service.dart';
+import 'package:panic_button/service/firebase_messaging_service.dart';
 import 'package:panic_button/service/permision_service.dart';
 import 'firebase_options.dart';
 
@@ -20,11 +19,9 @@ void main() async {
 
     // Initialize mobile-specific services
     if (!kIsWeb) {
-      final notificationService = NotificationService();
-      await notificationService.initialize();
-
-      final backgroundService = BackgroundService();
-      await backgroundService.initialize();
+      final messagingService = FirebaseMessagingService();
+      await messagingService.initialize();
+      await messagingService.subscribeToTopic('panic_alerts');
     }
 
     runApp(MyApp());
@@ -54,6 +51,11 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   final PermissionService _permissionService = PermissionService();
   bool _permissionsChecked = false;
+  static const Duration _timeoutDuration = Duration(seconds: 10);
+
+  // Tambahkan konstanta untuk routes
+  static const String homeRoute = '/home';
+  static const String loginRoute = '/login';
 
   @override
   void initState() {
@@ -61,16 +63,26 @@ class _MyAppState extends State<MyApp> {
     if (!kIsWeb) {
       _checkInitialPermissions();
     } else {
-      _permissionsChecked = true; // Skip permissions for web
+      _permissionsChecked = true;
     }
   }
 
   Future<void> _checkInitialPermissions() async {
-    if (!kIsWeb && mounted) {
-      await _permissionService.requestPermissions(context);
-      setState(() {
-        _permissionsChecked = true;
-      });
+    try {
+      if (!kIsWeb && mounted) {
+        if (mounted) {
+          setState(() {
+            _permissionsChecked = true;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error requesting permissions: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal mendapatkan izin: $e')),
+        );
+      }
     }
   }
 
@@ -83,43 +95,60 @@ class _MyAppState extends State<MyApp> {
         visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
       home: FutureBuilder<bool>(
-        future: widget._authService.checkLoginStatus(),
+        future:
+            widget._authService.checkLoginStatus().timeout(_timeoutDuration),
         builder: (context, snapshot) {
-          // Only show loading for permissions on mobile
           if (!kIsWeb && !_permissionsChecked) {
-            return const Scaffold(
-              body: Center(
-                child: CircularProgressIndicator(),
-              ),
-            );
+            return const _LoadingScreen();
           }
 
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Scaffold(
-              body: Center(
-                child: CircularProgressIndicator(),
-              ),
-            );
-          } else if (snapshot.hasError) {
-            return Scaffold(
-              body: Center(
-                child: Text('Error: ${snapshot.error}'),
-              ),
-            );
+            return const _LoadingScreen();
           }
 
-          if (snapshot.data == true) {
-            return const HomeScreen();
-          } else {
-            return const LoginScreen();
+          if (snapshot.hasError) {
+            return _ErrorScreen(error: snapshot.error.toString());
           }
+
+          return snapshot.data == true
+              ? const HomeScreen()
+              : const LoginScreen();
         },
       ),
       routes: {
-        '/home': (context) => const HomeScreen(),
-        '/login': (context) => const LoginScreen(),
+        homeRoute: (context) => const HomeScreen(),
+        loginRoute: (context) => const LoginScreen(),
       },
       debugShowCheckedModeBanner: false,
+    );
+  }
+}
+
+// Widgets pembantu untuk mengurangi duplikasi
+class _LoadingScreen extends StatelessWidget {
+  const _LoadingScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
+  }
+}
+
+class _ErrorScreen extends StatelessWidget {
+  final String error;
+
+  const _ErrorScreen({required this.error});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: Text('Error: $error'),
+      ),
     );
   }
 }
