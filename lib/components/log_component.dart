@@ -48,24 +48,33 @@ class _LogComponentState extends State<LogComponent> {
     try {
       final logContent = await widget.logService.getLogContent();
       if (logContent.isEmpty) {
-        throw Exception('No log entries to export');
+        throw Exception('Tidak ada entri log untuk diekspor');
       }
 
-      // Handle log action (download or share) based on platform
       await platform.handleLogAction(logContent);
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Log downloaded and saved successfully'),
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Log berhasil diunduh dan disimpan'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
     } catch (e) {
-      print('Error handling log action: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to process log: $e')),
-      );
+      print('Error saat menangani log: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal memproses log: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     } finally {
-      setState(() => _isProcessing = false);
+      if (mounted) {
+        setState(() => _isProcessing = false);
+      }
     }
   }
 
